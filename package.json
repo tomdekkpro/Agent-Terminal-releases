@@ -118,7 +118,8 @@
     "publish": {
       "provider": "github",
       "owner": "tomdekkpro",
-      "repo": "Agent-Terminal-releases"
+      "repo": "Agent-Terminal-releases",
+      "releaseType": "release"
     }
   },
   "dependencies": {
