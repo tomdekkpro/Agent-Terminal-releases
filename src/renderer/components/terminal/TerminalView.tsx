@@ -28,14 +28,19 @@ function TaskPickerModal({
   const [searching, setSearching] = useState(false);
   const [search, setSearch] = useState('');
   const [selectedTask, setSelectedTask] = useState<ClickUpTask | null>(null);
+  const [includeClosed, setIncludeClosed] = useState(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
+  const doSearch = useCallback(async (query: string, closed: boolean) => {
+    const result = await window.electronAPI.searchClickUpTasks(
+      query,
+      { includeClosed: closed }
+    );
+    if (result.success && result.data) setTasks(result.data);
+  }, []);
+
   useEffect(() => {
-    window.electronAPI
-      .searchClickUpTasks('')
-      .then((result: any) => {
-        if (result.success && result.data) setTasks(result.data);
-      })
+    doSearch('', includeClosed)
       .catch(() => {})
       .finally(() => setLoading(false));
     return () => {
@@ -50,15 +55,22 @@ function TaskPickerModal({
     searchTimerRef.current = setTimeout(async () => {
       setSearching(true);
       try {
-        const result = await window.electronAPI.searchClickUpTasks(value);
-        if (result.success && result.data) setTasks(result.data);
+        await doSearch(value, includeClosed);
       } catch {
         // Keep existing tasks on error
       } finally {
         setSearching(false);
       }
     }, 300);
-  }, []);
+  }, [doSearch, includeClosed]);
+
+  // Re-fetch when includeClosed changes
+  useEffect(() => {
+    setSearching(true);
+    doSearch(search, includeClosed)
+      .catch(() => {})
+      .finally(() => setSearching(false));
+  }, [includeClosed]);
 
   const filtered = tasks;
 
@@ -150,10 +162,19 @@ function TaskPickerModal({
               autoFocus
               value={search}
               onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder="Search tasks..."
+              placeholder="Search by title or task ID..."
               className="w-full pl-9 pr-4 py-2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
             />
           </div>
+          <label className="flex items-center gap-2 mt-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={includeClosed}
+              onChange={(e) => setIncludeClosed(e.target.checked)}
+              className="rounded border-[var(--border)] accent-[var(--accent)]"
+            />
+            <span className="text-[11px] text-[var(--text-muted)]">Include closed tasks</span>
+          </label>
         </div>
         <div className="flex-1 overflow-y-auto p-2">
           {loading ? (

@@ -37,7 +37,8 @@ const electronAPI = {
   // ClickUp
   checkClickUpConnection: () => ipcRenderer.invoke(IPC_CHANNELS.CLICKUP_CHECK_CONNECTION),
   getClickUpTasks: (listId?: string) => ipcRenderer.invoke(IPC_CHANNELS.CLICKUP_GET_TASKS, listId),
-  searchClickUpTasks: (query: string, listId?: string) => ipcRenderer.invoke(IPC_CHANNELS.CLICKUP_SEARCH_TASKS, query, listId),
+  searchClickUpTasks: (query: string, filters?: { statuses?: string[]; assignees?: string[]; includeClosed?: boolean }, listId?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.CLICKUP_SEARCH_TASKS, query, filters, listId),
   getClickUpTask: (taskId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLICKUP_GET_TASK, taskId),
   createClickUpTask: (listId: string, data: any) => ipcRenderer.invoke(IPC_CHANNELS.CLICKUP_CREATE_TASK, listId, data),
   postClickUpComment: (taskId: string, comment: string) => ipcRenderer.invoke(IPC_CHANNELS.CLICKUP_POST_COMMENT, taskId, comment),
