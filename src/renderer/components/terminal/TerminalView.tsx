@@ -518,9 +518,26 @@ export function TerminalView({ projectId }: TerminalViewProps) {
     return s.projects.find((p) => p.id === projectId);
   });
 
-  // Git fetch/pull state
+  // Git branch + fetch/pull state
+  const [currentBranch, setCurrentBranch] = useState<string>('');
   const [fetchStatus, setFetchStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [pullStatus, setPullStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+
+  // Fetch current branch for active project
+  const refreshBranch = useCallback(async () => {
+    if (!activeProject?.path) { setCurrentBranch(''); return; }
+    try {
+      const result = await window.electronAPI.listBranches(activeProject.path);
+      if (result.success && result.current) setCurrentBranch(result.current);
+      else setCurrentBranch('');
+    } catch { setCurrentBranch(''); }
+  }, [activeProject?.path]);
+
+  useEffect(() => {
+    refreshBranch();
+    const interval = setInterval(refreshBranch, 15000);
+    return () => clearInterval(interval);
+  }, [refreshBranch]);
 
   const handleGitFetch = useCallback(async () => {
     if (!activeProject?.path || fetchStatus === 'loading') return;
@@ -528,11 +545,12 @@ export function TerminalView({ projectId }: TerminalViewProps) {
     try {
       const result = await window.electronAPI.gitFetch(activeProject.path);
       setFetchStatus(result.success ? 'success' : 'error');
+      refreshBranch();
     } catch {
       setFetchStatus('error');
     }
     setTimeout(() => setFetchStatus('idle'), 2000);
-  }, [activeProject?.path, fetchStatus]);
+  }, [activeProject?.path, fetchStatus, refreshBranch]);
 
   const handleGitPull = useCallback(async () => {
     if (!activeProject?.path || pullStatus === 'loading') return;
@@ -540,11 +558,12 @@ export function TerminalView({ projectId }: TerminalViewProps) {
     try {
       const result = await window.electronAPI.gitPull(activeProject.path);
       setPullStatus(result.success ? 'success' : 'error');
+      refreshBranch();
     } catch {
       setPullStatus('error');
     }
     setTimeout(() => setPullStatus('idle'), 2000);
-  }, [activeProject?.path, pullStatus]);
+  }, [activeProject?.path, pullStatus, refreshBranch]);
 
   /** Setup a terminal with task info, optionally create worktree, create PTY, and optionally start Claude */
   const setupTerminalWithTask = useCallback(
@@ -932,6 +951,12 @@ export function TerminalView({ projectId }: TerminalViewProps) {
         <div className="flex items-center gap-2 no-drag">
           {activeProject && (
             <div className="flex items-center gap-1">
+              {currentBranch && (
+                <span className="flex items-center gap-1 px-2 h-7 text-[11px] text-[var(--accent)] shrink-0" title={`Branch: ${currentBranch}`}>
+                  <GitBranch className="w-3 h-3" />
+                  <span className="truncate max-w-[120px]">{currentBranch}</span>
+                </span>
+              )}
               <button
                 onClick={handleGitFetch}
                 disabled={fetchStatus === 'loading'}

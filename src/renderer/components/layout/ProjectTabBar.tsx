@@ -1,5 +1,5 @@
 import { useCallback, useState, useRef, useEffect } from 'react';
-import { FolderOpen, Plus, X, ChevronDown, GripVertical, GitBranch } from 'lucide-react';
+import { FolderOpen, Plus, X, ChevronDown, GripVertical } from 'lucide-react';
 import { useProjectStore } from '../../stores/project-store';
 import { cn } from '../../../shared/utils';
 
@@ -17,33 +17,6 @@ export function ProjectTabBar() {
 
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // Branch state per project (projectId -> branch name)
-  const [branches, setBranches] = useState<Record<string, string>>({});
-
-  // Fetch current branch for all open projects
-  useEffect(() => {
-    const fetchBranches = async () => {
-      const newBranches: Record<string, string> = {};
-      for (const id of openProjectIds) {
-        const project = projects.find((p) => p.id === id);
-        if (!project) continue;
-        try {
-          const result = await window.electronAPI.listBranches(project.path);
-          if (result.success && result.current) {
-            newBranches[id] = result.current;
-          }
-        } catch {
-          // Not a git repo or error - skip
-        }
-      }
-      setBranches(newBranches);
-    };
-    fetchBranches();
-    // Refresh branches every 15 seconds
-    const interval = setInterval(fetchBranches, 15000);
-    return () => clearInterval(interval);
-  }, [openProjectIds, projects]);
 
   // Drag state
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -162,12 +135,6 @@ export function ProjectTabBar() {
           <GripVertical className="w-3 h-3 shrink-0 opacity-0 group-hover:opacity-40 cursor-grab active:cursor-grabbing" />
           <FolderOpen className="w-3 h-3 shrink-0" />
           <span className="truncate max-w-[140px]">{project.name}</span>
-          {branches[project.id] && (
-            <span className="flex items-center gap-0.5 text-[10px] text-[var(--accent)] shrink-0 ml-0.5" title={`Branch: ${branches[project.id]}`}>
-              <GitBranch className="w-2.5 h-2.5" />
-              <span className="truncate max-w-[80px]">{branches[project.id]}</span>
-            </span>
-          )}
           {index < 9 && (
             <span className="text-[9px] text-[var(--text-muted)] opacity-0 group-hover:opacity-60 shrink-0 ml-0.5">{index + 1}</span>
           )}
