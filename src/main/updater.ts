@@ -2,6 +2,7 @@ import { autoUpdater } from 'electron-updater';
 import { BrowserWindow, ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../shared/constants';
 import { debugLog, debugError } from '../shared/utils';
+import { getSettings } from './ipc/settings-handlers';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -83,8 +84,11 @@ export function initAutoUpdater(getWindow: () => BrowserWindow | null) {
     autoUpdater.quitAndInstall(false, true);
   });
 
-  // Check for updates after a short delay on startup
+  // Check for updates after a short delay on startup (if enabled)
   setTimeout(() => {
-    autoUpdater.checkForUpdates().catch(() => {});
+    const settings = getSettings();
+    if (settings.autoUpdate) {
+      autoUpdater.checkForUpdates().catch(() => {});
+    }
   }, 5000);
 }

@@ -48,6 +48,8 @@ export interface AppSettings {
   maxTerminals: number;
   // Appearance
   theme: 'dark' | 'light';
+  // General
+  autoUpdate: boolean;
 }
 
 // Usage Monitor
@@ -97,4 +99,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   workingDirectory: '',
   maxTerminals: 12,
   theme: 'dark',
+  autoUpdate: true,
 };

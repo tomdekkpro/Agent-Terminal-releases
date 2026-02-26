@@ -25,12 +25,15 @@ echo "Current version: $CURRENT"
 NEW_VERSION=$(npm version "$BUMP_TYPE" --no-git-tag-version)
 echo "New version: $NEW_VERSION"
 
-# Update version in Sidebar.tsx
+# Update version in UI files
 sed -i "s/v${CURRENT}/${NEW_VERSION#v}/" src/renderer/components/layout/Sidebar.tsx 2>/dev/null || \
   sed -i '' "s/v${CURRENT}/${NEW_VERSION#v}/" src/renderer/components/layout/Sidebar.tsx
 
+sed -i "s/Version ${CURRENT}/Version ${NEW_VERSION#v}/" src/renderer/components/settings/SettingsView.tsx 2>/dev/null || \
+  sed -i '' "s/Version ${CURRENT}/Version ${NEW_VERSION#v}/" src/renderer/components/settings/SettingsView.tsx
+
 # Commit and tag
-git add package.json package-lock.json src/renderer/components/layout/Sidebar.tsx
+git add package.json package-lock.json src/renderer/components/layout/Sidebar.tsx src/renderer/components/settings/SettingsView.tsx
 git commit -m "Release ${NEW_VERSION}"
 git tag "${NEW_VERSION}"
 
