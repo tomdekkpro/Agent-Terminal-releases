@@ -4,14 +4,14 @@ import { IPC_CHANNELS } from '../shared/constants';
 import { debugLog, debugError } from '../shared/utils';
 import { getSettings } from './ipc/settings-handlers';
 
-let mainWindow: BrowserWindow | null = null;
+let getWindowRef: (() => BrowserWindow | null) | null = null;
 
 function sendToRenderer(channel: string, ...args: any[]) {
-  mainWindow?.webContents?.send(channel, ...args);
+  getWindowRef?.()?.webContents?.send(channel, ...args);
 }
 
 export function initAutoUpdater(getWindow: () => BrowserWindow | null) {
-  mainWindow = getWindow();
+  getWindowRef = getWindow;
 
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
