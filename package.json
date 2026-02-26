@@ -12,7 +12,13 @@
     "lint:fix": "biome check --write src/",
     "pack": "electron-vite build && electron-builder --dir",
     "dist": "electron-vite build && electron-builder",
-    "release": "electron-vite build && electron-builder --publish always"
+    "package:win": "electron-vite build && electron-builder --win",
+    "package:mac": "electron-vite build && electron-builder --mac",
+    "package:linux": "electron-vite build && electron-builder --linux",
+    "release": "electron-vite build && electron-builder --publish always",
+    "release:win": "electron-vite build && electron-builder --win --publish always",
+    "release:mac": "electron-vite build && electron-builder --mac --publish always",
+    "release:linux": "electron-vite build && electron-builder --linux --publish always"
   },
   "build": {
     "appId": "com.agentTerminal.app",
@@ -20,9 +26,15 @@
     "directories": {
       "output": "dist"
     },
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/@lydell/node-pty*/**"
+    ],
     "files": [
       "out/**/*",
-      "!node_modules/**/*"
+      "node_modules/@lydell/node-pty*/**",
+      "node_modules/electron-updater/**",
+      "!node_modules/@lydell/node-pty*/build/node_gyp_bins/**"
     ],
     "extraResources": [
       {
@@ -32,22 +44,54 @@
       }
     ],
     "win": {
-      "target": ["nsis"],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
       "icon": "resources/icon.ico"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
     },
     "mac": {
-      "target": ["dmg"],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        }
+      ],
       "icon": "resources/icon-512.png",
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
     },
     "linux": {
-      "target": ["AppImage"],
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        },
+        {
+          "target": "deb",
+          "arch": ["x64"]
+        }
+      ],
       "icon": "resources/icon-256.png",
-      "category": "Development"
+      "category": "Development",
+      "desktop": {
+        "StartupNotify": "true"
+      }
     },
     "publish": {
       "provider": "github",
