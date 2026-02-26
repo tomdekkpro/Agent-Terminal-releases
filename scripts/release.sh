@@ -25,12 +25,14 @@ echo "Current version: $CURRENT"
 NEW_VERSION=$(npm version "$BUMP_TYPE" --no-git-tag-version)
 echo "New version: $NEW_VERSION"
 
-# Update version in UI files
-sed -i "s/v${CURRENT}/${NEW_VERSION#v}/" src/renderer/components/layout/Sidebar.tsx 2>/dev/null || \
-  sed -i '' "s/v${CURRENT}/${NEW_VERSION#v}/" src/renderer/components/layout/Sidebar.tsx
+# Update version in UI files (NEW_VERSION has v prefix, e.g. v1.0.3)
+NEW_VER=${NEW_VERSION#v}
 
-sed -i "s/Version ${CURRENT}/Version ${NEW_VERSION#v}/" src/renderer/components/settings/SettingsView.tsx 2>/dev/null || \
-  sed -i '' "s/Version ${CURRENT}/Version ${NEW_VERSION#v}/" src/renderer/components/settings/SettingsView.tsx
+sed -i "s/v${CURRENT}/v${NEW_VER}/" src/renderer/components/layout/Sidebar.tsx 2>/dev/null || \
+  sed -i '' "s/v${CURRENT}/v${NEW_VER}/" src/renderer/components/layout/Sidebar.tsx
+
+sed -i "s/Version ${CURRENT}/Version ${NEW_VER}/" src/renderer/components/settings/SettingsView.tsx 2>/dev/null || \
+  sed -i '' "s/Version ${CURRENT}/Version ${NEW_VER}/" src/renderer/components/settings/SettingsView.tsx
 
 # Commit and tag
 git add package.json package-lock.json src/renderer/components/layout/Sidebar.tsx src/renderer/components/settings/SettingsView.tsx
