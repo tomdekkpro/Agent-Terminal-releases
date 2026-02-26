@@ -111,7 +111,8 @@ export function ProjectTabBar() {
   }, []);
 
   return (
-    <div className="h-9 bg-[var(--bg-primary)] border-b border-[var(--border)] flex items-center px-1 gap-0.5 overflow-x-auto shrink-0">
+    <div className="h-9 bg-[var(--bg-primary)] border-b border-[var(--border)] flex items-center px-1 gap-0.5 shrink-0">
+      <div className="flex items-center gap-0.5 overflow-x-auto flex-1 min-w-0">
       {openProjects.map((project, index) => (
         <div
           key={project.id}
@@ -148,8 +149,9 @@ export function ProjectTabBar() {
         </div>
       ))}
 
+      </div>
       {/* Add / Reopen dropdown */}
-      <div className="relative" ref={dropdownRef}>
+      <div className="relative shrink-0" ref={dropdownRef}>
         <button
           onClick={() => closedProjects.length > 0 ? setShowDropdown(!showDropdown) : handleAddProject()}
           className={cn(

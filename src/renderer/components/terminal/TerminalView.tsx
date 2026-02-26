@@ -556,6 +556,7 @@ export function TerminalView({ projectId }: TerminalViewProps) {
     if (!projectId) return undefined;
     return s.projects.find((p) => p.id === projectId);
   });
+  const addProjectAction = useProjectStore((s) => s.addProject);
 
   // Git branch + fetch/pull state
   const [currentBranch, setCurrentBranch] = useState<string>('');
@@ -1096,17 +1097,17 @@ export function TerminalView({ projectId }: TerminalViewProps) {
         <div className="flex items-center shrink-0">
           <button
             onClick={handleNewTerminal}
-            disabled={!canAddTerminal()}
+            disabled={!canAddTerminal() || !projectId}
             className={cn(
               'w-8 h-8 rounded-md flex items-center justify-center transition-all shrink-0',
               'hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)]',
               'disabled:opacity-30 disabled:cursor-not-allowed'
             )}
-            title="New Tab"
+            title={!projectId ? 'Open a project first' : 'New Tab'}
           >
             <Plus className="w-4 h-4" />
           </button>
-          {activeGroupId && canAddTerminal() && (
+          {activeGroupId && canAddTerminal() && projectId && (
             <button
               ref={menuTriggerRef}
               onClick={openNewMenu}
@@ -1162,14 +1163,29 @@ export function TerminalView({ projectId }: TerminalViewProps) {
       <div className="flex-1 relative min-h-0">
         {terminals.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-[var(--text-muted)] gap-4">
-            <TerminalIcon className="w-12 h-12 opacity-30" />
-            <p className="text-sm">No terminals open</p>
-            <button
-              onClick={handleNewTerminal}
-              className="px-4 py-2 rounded-lg bg-[var(--accent)] text-white text-sm hover:bg-[var(--accent-hover)] transition-colors"
-            >
-              New Terminal
-            </button>
+            {!projectId ? (
+              <>
+                <Folder className="w-12 h-12 opacity-30" />
+                <p className="text-sm">Open a project folder to get started</p>
+                <button
+                  onClick={() => addProjectAction()}
+                  className="px-4 py-2 rounded-lg bg-[var(--accent)] text-white text-sm hover:bg-[var(--accent-hover)] transition-colors"
+                >
+                  Open Project Folder
+                </button>
+              </>
+            ) : (
+              <>
+                <TerminalIcon className="w-12 h-12 opacity-30" />
+                <p className="text-sm">No terminals open</p>
+                <button
+                  onClick={handleNewTerminal}
+                  className="px-4 py-2 rounded-lg bg-[var(--accent)] text-white text-sm hover:bg-[var(--accent-hover)] transition-colors"
+                >
+                  New Terminal
+                </button>
+              </>
+            )}
           </div>
         ) : (
           groupIds.map((groupId) => {
