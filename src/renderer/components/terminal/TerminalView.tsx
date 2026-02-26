@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   Plus, X, Bot, Terminal as TerminalIcon, Search,
   Columns2, ChevronDown, GitBranch, GitMerge, GitPullRequest,
-  ArrowLeft, FolderGit2, Folder, Upload,
+  ArrowLeft, FolderGit2, Folder, Upload, Download, RefreshCw,
 } from 'lucide-react';
 import { useTerminalStore, type TerminalClickUpTask } from '../../stores/terminal-store';
 import { useSettingsStore } from '../../stores/settings-store';
@@ -518,6 +518,34 @@ export function TerminalView({ projectId }: TerminalViewProps) {
     return s.projects.find((p) => p.id === projectId);
   });
 
+  // Git fetch/pull state
+  const [fetchStatus, setFetchStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [pullStatus, setPullStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+
+  const handleGitFetch = useCallback(async () => {
+    if (!activeProject?.path || fetchStatus === 'loading') return;
+    setFetchStatus('loading');
+    try {
+      const result = await window.electronAPI.gitFetch(activeProject.path);
+      setFetchStatus(result.success ? 'success' : 'error');
+    } catch {
+      setFetchStatus('error');
+    }
+    setTimeout(() => setFetchStatus('idle'), 2000);
+  }, [activeProject?.path, fetchStatus]);
+
+  const handleGitPull = useCallback(async () => {
+    if (!activeProject?.path || pullStatus === 'loading') return;
+    setPullStatus('loading');
+    try {
+      const result = await window.electronAPI.gitPull(activeProject.path);
+      setPullStatus(result.success ? 'success' : 'error');
+    } catch {
+      setPullStatus('error');
+    }
+    setTimeout(() => setPullStatus('idle'), 2000);
+  }, [activeProject?.path, pullStatus]);
+
   /** Setup a terminal with task info, optionally create worktree, create PTY, and optionally start Claude */
   const setupTerminalWithTask = useCallback(
     async (terminal: { id: string }, task?: ClickUpTask, useWorktree = true) => {
@@ -901,7 +929,43 @@ export function TerminalView({ projectId }: TerminalViewProps) {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-3 no-drag">
+        <div className="flex items-center gap-2 no-drag">
+          {activeProject && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleGitFetch}
+                disabled={fetchStatus === 'loading'}
+                title="Fetch latest from remote"
+                className={cn(
+                  'flex items-center gap-1 px-2 h-7 rounded-md text-[11px] transition-all',
+                  'hover:bg-[var(--bg-tertiary)] border border-transparent',
+                  fetchStatus === 'loading' && 'opacity-60 cursor-wait',
+                  fetchStatus === 'success' && 'text-green-500 border-green-500/20 bg-green-500/10',
+                  fetchStatus === 'error' && 'text-red-500 border-red-500/20 bg-red-500/10',
+                  fetchStatus === 'idle' && 'text-[var(--text-muted)]',
+                )}
+              >
+                <RefreshCw className={cn('w-3 h-3', fetchStatus === 'loading' && 'animate-spin')} />
+                <span>Fetch</span>
+              </button>
+              <button
+                onClick={handleGitPull}
+                disabled={pullStatus === 'loading'}
+                title="Pull latest from remote"
+                className={cn(
+                  'flex items-center gap-1 px-2 h-7 rounded-md text-[11px] transition-all',
+                  'hover:bg-[var(--bg-tertiary)] border border-transparent',
+                  pullStatus === 'loading' && 'opacity-60 cursor-wait',
+                  pullStatus === 'success' && 'text-green-500 border-green-500/20 bg-green-500/10',
+                  pullStatus === 'error' && 'text-red-500 border-red-500/20 bg-red-500/10',
+                  pullStatus === 'idle' && 'text-[var(--text-muted)]',
+                )}
+              >
+                <Download className={cn('w-3 h-3', pullStatus === 'loading' && 'animate-bounce')} />
+                <span>Pull</span>
+              </button>
+            </div>
+          )}
           <UsageIndicator />
           <span className="text-xs text-[var(--text-muted)]">
             {terminals.filter((t) => t.status !== 'exited').length}/

@@ -246,6 +246,56 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
   );
 
   ipcMain.handle(
+    IPC_CHANNELS.GIT_FETCH,
+    async (_event, cwd: string) => {
+      try {
+        if (!isGitRepo(cwd)) {
+          return { success: false, error: 'Not a git repository' };
+        }
+
+        execSync('git fetch --all --prune', {
+          cwd,
+          stdio: 'pipe',
+          timeout: 30000,
+        });
+
+        debugLog('[Git] Fetched all remotes');
+        return { success: true };
+      } catch (error: any) {
+        const msg = error.stderr?.toString() || error.message || '';
+        debugError('[Git] fetch error:', msg);
+        return { success: false, error: msg || 'Failed to fetch' };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_PULL,
+    async (_event, cwd: string) => {
+      try {
+        if (!isGitRepo(cwd)) {
+          return { success: false, error: 'Not a git repository' };
+        }
+
+        const output = execSync('git pull', {
+          cwd,
+          encoding: 'utf-8',
+          stdio: 'pipe',
+          timeout: 60000,
+        }).trim();
+
+        const alreadyUpToDate = output.includes('Already up to date') || output.includes('up-to-date');
+        debugLog('[Git] Pull result:', output);
+        return { success: true, alreadyUpToDate, output };
+      } catch (error: any) {
+        const msg = error.stderr?.toString() || error.message || '';
+        debugError('[Git] pull error:', msg);
+        return { success: false, error: msg || 'Failed to pull' };
+      }
+    }
+  );
+
+  ipcMain.handle(
     IPC_CHANNELS.GIT_CREATE_PR,
     async (
       _event,
