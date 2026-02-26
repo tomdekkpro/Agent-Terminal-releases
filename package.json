@@ -2,7 +2,10 @@
   "name": "agent-terminal",
   "version": "1.0.0",
   "description": "Agent Terminal - AI-powered terminal with ClickUp integration",
-  "author": "tomdekkpro",
+  "author": {
+    "name": "tomdekkpro",
+    "email": "tomdekkpro@users.noreply.github.com"
+  },
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
