@@ -1,9 +1,25 @@
 import { type IpcMain } from 'electron';
 import { execSync } from 'child_process';
-import { existsSync, readFileSync, appendFileSync } from 'fs';
+import { existsSync, readFileSync, appendFileSync, cpSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { debugLog, debugError } from '../../shared/utils';
+
+/** Copy .claude/ directory from parent project to worktree so Claude Code CLI has project settings */
+function copyClaudeConfig(projectPath: string, worktreeDir: string): void {
+  try {
+    const srcDir = join(projectPath, '.claude');
+    if (!existsSync(srcDir)) return;
+
+    const destDir = join(worktreeDir, '.claude');
+    mkdirSync(destDir, { recursive: true });
+    cpSync(srcDir, destDir, { recursive: true });
+    debugLog('[Git] Copied .claude/ config to worktree');
+  } catch (err) {
+    debugError('[Git] Failed to copy .claude/ config:', err);
+    // Non-critical — Claude will work without it
+  }
+}
 
 /** Sanitize a string to be safe for git branch names and directory names */
 function sanitize(name: string): string {
@@ -74,6 +90,9 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
             return { success: false, error: err.message || 'Failed to create worktree' };
           }
         }
+
+        // Copy .claude/ config so Claude Code CLI has project settings & permissions
+        copyClaudeConfig(projectPath, worktreeDir);
 
         debugLog('[Git] Created worktree:', worktreeDir, 'branch:', branch);
         return { success: true, data: worktreeDir, branch };

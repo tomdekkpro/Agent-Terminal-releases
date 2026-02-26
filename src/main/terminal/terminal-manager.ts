@@ -107,7 +107,9 @@ export class TerminalManager {
     const dir = cwd || terminal.cwd;
     const separator = terminal.shellType === 'powershell' ? '; ' : ' && ';
     const claudeCmd = skipPermissions ? 'claude --dangerously-skip-permissions' : 'claude';
-    const command = `cd "${dir}"${separator}${claudeCmd}\r`;
+    // Use "cd /d" on cmd.exe to handle drive letter changes on Windows
+    const cdCmd = terminal.shellType === 'cmd' ? `cd /d "${dir}"` : `cd "${dir}"`;
+    const command = `${cdCmd}${separator}${claudeCmd}\r`;
     PtyManager.writeToPty(terminal, command);
 
     const win = this.getWindow();
