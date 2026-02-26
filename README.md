@@ -20,6 +20,8 @@
 
 ---
 
+<img width="1189" height="794" alt="image" src="https://github.com/user-attachments/assets/18bc36ad-976e-4e2c-9346-597afdd61df1" />
+
 ## Features
 
 - **Multi-project terminals** — Organize terminals by project with tabbed navigation and split panes
