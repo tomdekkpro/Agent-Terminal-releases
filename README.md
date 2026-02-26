@@ -9,11 +9,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/tomdekkpro/Agent-Terminal/releases/latest">
-    <img src="https://img.shields.io/github/v/release/tomdekkpro/Agent-Terminal?style=flat-square" alt="Latest Release" />
+  <a href="https://github.com/tomdekkpro/Agent-Terminal-releases/releases/latest">
+    <img src="https://img.shields.io/github/v/release/tomdekkpro/Agent-Terminal-releases?style=flat-square" alt="Latest Release" />
   </a>
-  <a href="https://github.com/tomdekkpro/Agent-Terminal/releases/latest">
-    <img src="https://img.shields.io/github/downloads/tomdekkpro/Agent-Terminal/total?style=flat-square" alt="Downloads" />
+  <a href="https://github.com/tomdekkpro/Agent-Terminal-releases/releases/latest">
+    <img src="https://img.shields.io/github/downloads/tomdekkpro/Agent-Terminal-releases/total?style=flat-square" alt="Downloads" />
   </a>
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square" alt="Platform" />
 </p>
@@ -37,11 +37,11 @@ Get the latest release for your platform:
 
 | Platform | Download |
 |----------|----------|
-| Windows | [Agent-Terminal-Setup.exe](https://github.com/tomdekkpro/Agent-Terminal/releases/latest) |
-| macOS (Intel) | [Agent-Terminal.dmg](https://github.com/tomdekkpro/Agent-Terminal/releases/latest) |
-| macOS (Apple Silicon) | [Agent-Terminal-arm64.dmg](https://github.com/tomdekkpro/Agent-Terminal/releases/latest) |
-| Linux (AppImage) | [Agent-Terminal.AppImage](https://github.com/tomdekkpro/Agent-Terminal/releases/latest) |
-| Linux (Debian) | [agent-terminal.deb](https://github.com/tomdekkpro/Agent-Terminal/releases/latest) |
+| Windows | [Agent-Terminal-Setup.exe](https://github.com/tomdekkpro/Agent-Terminal-releases/releases/latest) |
+| macOS (Intel) | [Agent-Terminal.dmg](https://github.com/tomdekkpro/Agent-Terminal-releases/releases/latest) |
+| macOS (Apple Silicon) | [Agent-Terminal-arm64.dmg](https://github.com/tomdekkpro/Agent-Terminal-releases/releases/latest) |
+| Linux (AppImage) | [Agent-Terminal.AppImage](https://github.com/tomdekkpro/Agent-Terminal-releases/releases/latest) |
+| Linux (Debian) | [agent-terminal.deb](https://github.com/tomdekkpro/Agent-Terminal-releases/releases/latest) |
 
 ## Keyboard Shortcuts
 
@@ -95,7 +95,7 @@ npm run package:linux   # Linux (.AppImage, .deb)
 git push origin Develop --tags
 ```
 
-The GitHub Actions workflow builds for all platforms and publishes to GitHub Releases automatically.
+The GitHub Actions workflow builds for all platforms and publishes to [Agent-Terminal-releases](https://github.com/tomdekkpro/Agent-Terminal-releases) automatically.
 
 ## Configuration
 
@@ -152,4 +152,4 @@ src/
 
 ## License
 
-MIT
+MIT &copy; Tom
