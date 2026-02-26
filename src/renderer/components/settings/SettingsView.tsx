@@ -165,7 +165,7 @@ export function SettingsView() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-[var(--text-primary)]">Agent Terminal</p>
-                      <p className="text-xs text-[var(--text-muted)] mt-0.5">Version 1.0.2</p>
+                      <p className="text-xs text-[var(--text-muted)] mt-0.5">Version 1.0.3</p>
                       <p className="text-[10px] text-[var(--text-muted)] mt-1">&copy; {new Date().getFullYear()} Tom. All rights reserved.</p>
                     </div>
                     {updateStatus === 'up-to-date' && (
