@@ -1,0 +1,9 @@
+node_modules/
+out/
+dist/
+.task-worktrees/
+*.log
+.env
+.env.*
+.DS_Store
+Thumbs.db
