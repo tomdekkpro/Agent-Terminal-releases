@@ -108,35 +108,6 @@ Customize font family, font size, cursor style, scrollback buffer, and theme in 
 - **electron-builder 26** — Packaging & distribution
 - **electron-updater 6** — Auto-updates
 
-## Project Structure
-
-```
-src/
-├── main/                # Electron main process
-│   ├── index.ts         # Window creation, tray, menu
-│   ├── updater.ts       # Auto-update logic
-│   ├── ipc/             # IPC handlers
-│   │   ├── terminal-handlers.ts
-│   │   ├── clickup-handlers.ts
-│   │   ├── git-handlers.ts
-│   │   ├── project-handlers.ts
-│   │   └── settings-handlers.ts
-│   ├── terminal/        # PTY management & persistence
-│   └── project/         # Project data store
-├── renderer/            # React frontend
-│   ├── App.tsx          # Root component & shortcuts
-│   ├── components/
-│   │   ├── terminal/    # TerminalView, TerminalPanel
-│   │   ├── layout/      # Sidebar, ProjectTabBar
-│   │   ├── clickup/     # ClickUpView
-│   │   ├── settings/    # SettingsView
-│   │   └── updates/     # UpdateNotification
-│   ├── stores/          # Zustand stores
-│   └── hooks/           # Global event listeners
-├── preload/             # Context isolation bridge
-└── shared/              # Types, constants, utilities
-```
-
 ## License
 
 MIT &copy; Tom
