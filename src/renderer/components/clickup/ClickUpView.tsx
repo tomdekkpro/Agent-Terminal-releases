@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { RefreshCw, Search, ExternalLink, AlertCircle, CheckSquare } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settings-store';
 import { cn } from '../../../shared/utils';
@@ -8,9 +8,11 @@ export function ClickUpView() {
   const settings = useSettingsStore((s) => s.settings);
   const [tasks, setTasks] = useState<ClickUpTask[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTask, setSelectedTask] = useState<ClickUpTask | null>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const loadTasks = useCallback(async () => {
     if (!settings.clickupEnabled || !settings.clickupApiKey) return;
@@ -18,7 +20,7 @@ export function ClickUpView() {
     setLoading(true);
     setError(null);
     try {
-      const result = await window.electronAPI.getClickUpTasks();
+      const result = await window.electronAPI.searchClickUpTasks('');
       if (result.success) {
         setTasks(result.data || []);
       } else {
@@ -35,16 +37,34 @@ export function ClickUpView() {
     loadTasks();
   }, [loadTasks]);
 
-  const filteredTasks = tasks.filter((task) => {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      task.name.toLowerCase().includes(query) ||
-      task.custom_id?.toLowerCase().includes(query) ||
-      task.text_content?.toLowerCase().includes(query) ||
-      task.status.status.toLowerCase().includes(query)
-    );
-  });
+  // Debounced search via API
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+
+    searchTimerRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const result = await window.electronAPI.searchClickUpTasks(value);
+        if (result.success) {
+          setTasks(result.data || []);
+        }
+      } catch {
+        // Keep existing tasks on error
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+  }, []);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, []);
+
+  const filteredTasks = tasks;
 
   if (!settings.clickupEnabled) {
     return (
@@ -81,11 +101,15 @@ export function ClickUpView() {
       {/* Search bar */}
       <div className="px-4 py-3 bg-[var(--bg-secondary)] border-b border-[var(--border)]">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
+          {searching ? (
+            <RefreshCw className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--accent)] animate-spin" />
+          ) : (
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
+          )}
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             placeholder="Search tasks..."
             className="w-full pl-9 pr-4 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
           />

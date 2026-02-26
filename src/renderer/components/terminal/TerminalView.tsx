@@ -25,28 +25,42 @@ function TaskPickerModal({
 }) {
   const [tasks, setTasks] = useState<ClickUpTask[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [search, setSearch] = useState('');
   const [selectedTask, setSelectedTask] = useState<ClickUpTask | null>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
     window.electronAPI
-      .getClickUpTasks()
+      .searchClickUpTasks('')
       .then((result: any) => {
         if (result.success && result.data) setTasks(result.data);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
   }, []);
 
-  const filtered = tasks.filter((t) => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return (
-      t.name.toLowerCase().includes(q) ||
-      t.custom_id?.toLowerCase().includes(q) ||
-      t.status.status.toLowerCase().includes(q)
-    );
-  });
+  const handleSearchChange = useCallback((value: string) => {
+    setSearch(value);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+
+    searchTimerRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const result = await window.electronAPI.searchClickUpTasks(value);
+        if (result.success && result.data) setTasks(result.data);
+      } catch {
+        // Keep existing tasks on error
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+  }, []);
+
+  const filtered = tasks;
 
   // Step 2: task selected — choose worktree or current branch
   if (selectedTask) {
@@ -126,12 +140,16 @@ function TaskPickerModal({
             Start Terminal with Task
           </h2>
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
+            {searching ? (
+              <RefreshCw className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--accent)] animate-spin" />
+            ) : (
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
+            )}
             <input
               type="text"
               autoFocus
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
               placeholder="Search tasks..."
               className="w-full pl-9 pr-4 py-2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
             />

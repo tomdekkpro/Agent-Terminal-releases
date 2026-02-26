@@ -4,9 +4,10 @@ import { getSettings } from './settings-handlers';
 
 const CLICKUP_API_BASE = 'https://api.clickup.com/api/v2';
 
-// 30-second cache
+// 30-second cache for initial load, 2-minute cache for full paginated fetch
 const taskCache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL = 30000;
+const FULL_CACHE_TTL = 120000;
 
 async function clickUpFetch(endpoint: string, options: RequestInit = {}) {
   const settings = getSettings();
@@ -73,6 +74,69 @@ export function registerClickUpHandlers(ipcMain: IpcMain): void {
       };
     }
   });
+
+  ipcMain.handle(
+    IPC_CHANNELS.CLICKUP_SEARCH_TASKS,
+    async (_event, query: string, listId?: string) => {
+      try {
+        const settings = getSettings();
+        const targetListId = listId || settings.clickupListId;
+        if (!targetListId) throw new Error('No list ID configured');
+
+        // Check if we have a full cache of all tasks
+        const fullCacheKey = `all-tasks-${targetListId}`;
+        let allTasks: any[];
+        const cached = taskCache.get(fullCacheKey);
+
+        if (cached && Date.now() - cached.timestamp < FULL_CACHE_TTL) {
+          allTasks = cached.data;
+        } else {
+          // Fetch ALL pages from the list
+          allTasks = [];
+          let page = 0;
+          let hasMore = true;
+
+          while (hasMore) {
+            const data = await clickUpFetch(
+              `/list/${targetListId}/task?include_closed=true&subtasks=true&page=${page}`
+            );
+            const tasks = data.tasks || [];
+            allTasks.push(...tasks);
+            // ClickUp returns 100 per page; if less, we've reached the end
+            hasMore = tasks.length === 100;
+            page++;
+            // Safety limit to avoid infinite loops
+            if (page > 20) break;
+          }
+
+          taskCache.set(fullCacheKey, { data: allTasks, timestamp: Date.now() });
+          // Also update the regular cache so initial load benefits
+          taskCache.set(`tasks-${targetListId}`, { data: allTasks, timestamp: Date.now() });
+        }
+
+        // Filter by query
+        if (!query.trim()) {
+          return { success: true, data: allTasks };
+        }
+
+        const q = query.toLowerCase();
+        const filtered = allTasks.filter(
+          (t: any) =>
+            t.name?.toLowerCase().includes(q) ||
+            t.custom_id?.toLowerCase().includes(q) ||
+            t.text_content?.toLowerCase().includes(q) ||
+            t.status?.status?.toLowerCase().includes(q)
+        );
+
+        return { success: true, data: filtered };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to search tasks',
+        };
+      }
+    }
+  );
 
   ipcMain.handle(IPC_CHANNELS.CLICKUP_GET_TASK, async (_event, taskId: string) => {
     try {

@@ -23,6 +23,7 @@ export const IPC_CHANNELS = {
   CLICKUP_UPDATE_STATUS: 'clickup:update-status',
   CLICKUP_POST_TIME_ENTRY: 'clickup:post-time-entry',
   CLICKUP_GET_TIME_ENTRIES: 'clickup:get-time-entries',
+  CLICKUP_SEARCH_TASKS: 'clickup:search-tasks',
   // Settings
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
