@@ -8,6 +8,7 @@ import { useGlobalTerminalListeners } from './hooks/useGlobalTerminalListeners';
 import { useProjectStore } from './stores/project-store';
 import { useSettingsStore } from './stores/settings-store';
 import { useTerminalStore } from './stores/terminal-store';
+import { UpdateNotification } from './components/updates/UpdateNotification';
 
 export type ViewType = 'terminals' | 'clickup' | 'settings';
 
@@ -104,6 +105,7 @@ export default function App() {
         {activeView === 'clickup' && <ClickUpView />}
         {activeView === 'settings' && <SettingsView />}
       </main>
+      <UpdateNotification />
     </div>
   );
 }

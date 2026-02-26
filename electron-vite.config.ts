@@ -6,7 +6,7 @@ export default defineConfig({
   main: {
     build: {
       rollupOptions: {
-        external: ['@lydell/node-pty']
+        external: ['@lydell/node-pty', 'electron-updater']
       }
     }
   },

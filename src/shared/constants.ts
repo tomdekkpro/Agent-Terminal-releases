@@ -46,6 +46,11 @@ export const IPC_CHANNELS = {
   GIT_LIST_BRANCHES: 'git:list-branches',
   GIT_CREATE_PR: 'git:create-pr',
   GIT_PUSH_BRANCH: 'git:push-branch',
+  // Updates
+  UPDATE_CHECK: 'update:check',
+  UPDATE_DOWNLOAD: 'update:download',
+  UPDATE_INSTALL: 'update:install',
+  UPDATE_STATUS: 'update:status',
   // App
   OPEN_EXTERNAL: 'app:open-external',
 } as const;

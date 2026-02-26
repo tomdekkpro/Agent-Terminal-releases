@@ -81,6 +81,16 @@ const electronAPI = {
   getSetting: (key: string) => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET, key),
   setSettings: (updates: any) => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_SET, updates),
 
+  // Updates
+  checkForUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_CHECK),
+  downloadUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_DOWNLOAD),
+  installUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_INSTALL),
+  onUpdateStatus: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.UPDATE_STATUS, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.UPDATE_STATUS, handler);
+  },
+
   // App
   openExternal: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_EXTERNAL, url),
 };

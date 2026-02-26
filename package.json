@@ -9,7 +9,51 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src/",
-    "lint:fix": "biome check --write src/"
+    "lint:fix": "biome check --write src/",
+    "pack": "electron-vite build && electron-builder --dir",
+    "dist": "electron-vite build && electron-builder",
+    "release": "electron-vite build && electron-builder --publish always"
+  },
+  "build": {
+    "appId": "com.agentTerminal.app",
+    "productName": "Agent Terminal",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*",
+      "!node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources",
+        "to": ".",
+        "filter": ["icon.png", "tray-icon.png", "icon.ico"]
+      }
+    ],
+    "win": {
+      "target": ["nsis"],
+      "icon": "resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": ["dmg"],
+      "icon": "resources/icon-512.png",
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "icon": "resources/icon-256.png",
+      "category": "Development"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "tomdekkpro",
+      "repo": "Agent-Terminal"
+    }
   },
   "dependencies": {
     "@lydell/node-pty": "^1.1.0",
@@ -20,6 +64,7 @@
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/xterm": "^5.5.0",
     "clsx": "^2.1.0",
+    "electron-updater": "^6.8.3",
     "lucide-react": "^0.460.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -35,6 +80,7 @@
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.4.0",
     "electron": "^33.0.0",
+    "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
     "postcss": "^8.4.0",
     "sharp": "^0.34.5",

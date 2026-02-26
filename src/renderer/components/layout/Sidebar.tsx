@@ -66,6 +66,11 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
           <Icon className="w-5 h-5" />
         </button>
       ))}
+
+      {/* Version at bottom */}
+      <div className="mt-auto pt-2">
+        <span className="text-[9px] text-[var(--text-muted)] opacity-40">v1.0.0</span>
+      </div>
     </div>
   );
 }

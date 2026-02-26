@@ -7,6 +7,7 @@ import { registerSettingsHandlers } from './ipc/settings-handlers';
 import { registerUsageHandlers, stopUsagePolling } from './ipc/usage-handlers';
 import { registerProjectHandlers } from './ipc/project-handlers';
 import { registerGitHandlers } from './ipc/git-handlers';
+import { initAutoUpdater } from './updater';
 import { IPC_CHANNELS } from '../shared/constants';
 
 let mainWindow: BrowserWindow | null = null;
@@ -91,6 +92,7 @@ app.whenReady().then(() => {
   registerUsageHandlers(ipcMain, getWindow);
   registerProjectHandlers(ipcMain, getWindow);
   registerGitHandlers(ipcMain);
+  initAutoUpdater(getWindow);
 
   // Open external links
   ipcMain.handle(IPC_CHANNELS.OPEN_EXTERNAL, async (_event, url: string) => {
