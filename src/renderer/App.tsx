@@ -8,9 +8,10 @@ import { useGlobalTerminalListeners } from './hooks/useGlobalTerminalListeners';
 import { useProjectStore } from './stores/project-store';
 import { useSettingsStore } from './stores/settings-store';
 import { useTerminalStore } from './stores/terminal-store';
+import { InsightsView } from './components/insights';
 import { UpdateNotification } from './components/updates/UpdateNotification';
 
-export type ViewType = 'terminals' | 'clickup' | 'settings';
+export type ViewType = 'terminals' | 'clickup' | 'insights' | 'settings';
 
 export default function App() {
   const [activeView, setActiveView] = useState<ViewType>('terminals');
@@ -30,6 +31,7 @@ export default function App() {
     const viewKeys: Record<string, ViewType> = {
       t: 'terminals',
       k: 'clickup',
+      i: 'insights',
       s: 'settings',
     };
     const handler = (e: KeyboardEvent) => {
@@ -109,6 +111,7 @@ export default function App() {
           </>
         )}
         {activeView === 'clickup' && <ClickUpView />}
+        {activeView === 'insights' && <InsightsView />}
         {activeView === 'settings' && <SettingsView />}
       </main>
       <UpdateNotification />

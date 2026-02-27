@@ -1,4 +1,4 @@
-import { Terminal, CheckSquare, Settings } from 'lucide-react';
+import { Terminal, CheckSquare, Sparkles, Settings } from 'lucide-react';
 import type { ViewType } from '../../App';
 import { cn } from '../../../shared/utils';
 
@@ -10,6 +10,7 @@ interface SidebarProps {
 const navItems: { id: ViewType; icon: typeof Terminal; label: string; shortcut: string }[] = [
   { id: 'terminals', icon: Terminal, label: 'Terminals', shortcut: 'Ctrl+T' },
   { id: 'clickup', icon: CheckSquare, label: 'ClickUp', shortcut: 'Ctrl+K' },
+  { id: 'insights', icon: Sparkles, label: 'Insights', shortcut: 'Ctrl+I' },
   { id: 'settings', icon: Settings, label: 'Settings', shortcut: 'Ctrl+S' },
 ];
 

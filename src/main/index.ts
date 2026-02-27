@@ -8,6 +8,7 @@ import { registerSettingsHandlers } from './ipc/settings-handlers';
 import { registerUsageHandlers, stopUsagePolling } from './ipc/usage-handlers';
 import { registerProjectHandlers } from './ipc/project-handlers';
 import { registerGitHandlers } from './ipc/git-handlers';
+import { registerInsightsHandlers, cleanupInsights } from './ipc/insights-handlers';
 import { initAutoUpdater } from './updater';
 import { IPC_CHANNELS } from '../shared/constants';
 
@@ -93,6 +94,7 @@ app.whenReady().then(() => {
   registerUsageHandlers(ipcMain, getWindow);
   registerProjectHandlers(ipcMain, getWindow);
   registerGitHandlers(ipcMain);
+  registerInsightsHandlers(ipcMain, getWindow);
   initAutoUpdater(getWindow);
 
   // Open external links
@@ -110,6 +112,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', async () => {
+  cleanupInsights();
   stopUsagePolling();
   if (terminalManager) {
     // Save output buffers before killing terminals so they can be restored

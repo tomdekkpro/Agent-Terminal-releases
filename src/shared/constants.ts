@@ -51,6 +51,15 @@ export const IPC_CHANNELS = {
   GIT_PUSH_BRANCH: 'git:push-branch',
   GIT_FETCH: 'git:fetch',
   GIT_PULL: 'git:pull',
+  // Insights
+  INSIGHTS_LIST_SESSIONS: 'insights:list-sessions',
+  INSIGHTS_GET_SESSION: 'insights:get-session',
+  INSIGHTS_CREATE_SESSION: 'insights:create-session',
+  INSIGHTS_DELETE_SESSION: 'insights:delete-session',
+  INSIGHTS_RENAME_SESSION: 'insights:rename-session',
+  INSIGHTS_SEND_MESSAGE: 'insights:send-message',
+  INSIGHTS_ABORT_STREAM: 'insights:abort-stream',
+  INSIGHTS_STREAM_EVENT: 'insights:stream-event',
   // Updates
   UPDATE_CHECK: 'update:check',
   UPDATE_DOWNLOAD: 'update:download',

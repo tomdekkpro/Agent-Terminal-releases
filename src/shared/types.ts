@@ -84,6 +84,44 @@ export interface ProjectTabState {
   tabOrder: string[];
 }
 
+// Insights
+export type InsightsModel = 'opus' | 'sonnet' | 'haiku';
+
+export interface InsightsMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  model?: InsightsModel;
+}
+
+export interface InsightsSession {
+  id: string;
+  title: string;
+  messages: InsightsMessage[];
+  model: InsightsModel;
+  projectPath?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InsightsSessionMeta {
+  id: string;
+  title: string;
+  messageCount: number;
+  model: InsightsModel;
+  projectPath?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InsightsStreamEvent {
+  type: 'text' | 'done' | 'error';
+  sessionId: string;
+  text?: string;
+  error?: string;
+}
+
 export const DEFAULT_SETTINGS: AppSettings = {
   terminalFontFamily: 'Cascadia Code, Consolas, Courier New, monospace',
   terminalFontSize: 14,

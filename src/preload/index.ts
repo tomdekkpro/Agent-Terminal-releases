@@ -87,6 +87,24 @@ const electronAPI = {
   gitFetch: (cwd: string) => ipcRenderer.invoke(IPC_CHANNELS.GIT_FETCH, cwd),
   gitPull: (cwd: string) => ipcRenderer.invoke(IPC_CHANNELS.GIT_PULL, cwd),
 
+  // Insights
+  insightsListSessions: () => ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_LIST_SESSIONS),
+  insightsGetSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_GET_SESSION, id),
+  insightsCreateSession: (model: string, projectPath?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_CREATE_SESSION, model, projectPath),
+  insightsDeleteSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_DELETE_SESSION, id),
+  insightsRenameSession: (id: string, title: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_RENAME_SESSION, id, title),
+  insightsSendMessage: (sessionId: string, content: string, model?: string, projectPath?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_SEND_MESSAGE, sessionId, content, model, projectPath),
+  insightsAbortStream: (sessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_ABORT_STREAM, sessionId),
+  onInsightsStreamEvent: (callback: (event: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.INSIGHTS_STREAM_EVENT, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.INSIGHTS_STREAM_EVENT, handler);
+  },
+
   // Settings
   getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET_ALL),
   getSetting: (key: string) => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET, key),
