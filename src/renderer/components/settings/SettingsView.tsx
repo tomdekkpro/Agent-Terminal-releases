@@ -42,7 +42,7 @@ export function SettingsView() {
         error: data.error,
       });
     });
-    return cleanup;
+    return () => { cleanup(); };
   }, []);
 
   const handleChange = (key: keyof AppSettings, value: any) => {

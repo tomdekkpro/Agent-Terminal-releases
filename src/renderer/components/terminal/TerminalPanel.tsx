@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Bot, X, ExternalLink, GitBranch, GitMerge, Play, Square, Clock } from 'lucide-react';
+import { Bot, X, ExternalLink, GitBranch, GitMerge, Play, Square, Clock, Smartphone, Copy, Check, Eraser } from 'lucide-react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import QRCode from 'qrcode';
 import { registerOutputCallback, unregisterOutputCallback, getAndClearSavedBuffer, useTerminalStore, type Terminal } from '../../stores/terminal-store';
 import { cn } from '../../../shared/utils';
 
@@ -60,6 +61,13 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
   const bufferRef = useRef<string[]>([]);
 
   const initObserverRef = useRef<ResizeObserver | null>(null);
+
+  // Remote control URL capture
+  const rcBufferRef = useRef<string | null>(null);
+  const rcTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [remoteUrl, setRemoteUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
   // Time tracking
   const startTimer = useTerminalStore((s) => s.startTimer);
@@ -144,6 +152,20 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
     // Buffer output from the very start, before xterm even exists
     registerOutputCallback(terminal.id, (data) => {
       safeWrite(data);
+      // Capture remote control URL from output
+      if (rcBufferRef.current !== null) {
+        rcBufferRef.current += data;
+        // Strip ANSI escape codes and match URL
+        const clean = rcBufferRef.current.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+        const urlMatch = clean.match(/https:\/\/\S+/);
+        if (urlMatch) {
+          const url = urlMatch[0].replace(/[)\]}>.,;:!?'"+]+$/, '');
+          setRemoteUrl(url);
+          setCopied(false);
+          rcBufferRef.current = null;
+          if (rcTimeoutRef.current) { clearTimeout(rcTimeoutRef.current); rcTimeoutRef.current = null; }
+        }
+      }
     });
 
     const doInit = () => {
@@ -280,6 +302,8 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
       unregisterOutputCallback(terminal.id);
       readyRef.current = false;
       bufferRef.current = [];
+      rcBufferRef.current = null;
+      if (rcTimeoutRef.current) { clearTimeout(rcTimeoutRef.current); rcTimeoutRef.current = null; }
       if (initObserverRef.current) { initObserverRef.current.disconnect(); initObserverRef.current = null; }
       if (fitAddonRef.current) { fitAddonRef.current.dispose(); fitAddonRef.current = null; }
       if (xtermRef.current) { xtermRef.current.dispose(); xtermRef.current = null; }
@@ -323,8 +347,16 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
     };
   }, []);
 
+  // Generate QR code when remoteUrl changes
+  useEffect(() => {
+    if (!remoteUrl) { setQrDataUrl(null); return; }
+    QRCode.toDataURL(remoteUrl, { width: 200, margin: 2, color: { dark: '#000000', light: '#ffffff' } })
+      .then(setQrDataUrl)
+      .catch(() => setQrDataUrl(null));
+  }, [remoteUrl]);
+
   return (
-    <div className="flex flex-col h-full" onClick={onFocus}>
+    <div className="flex flex-col h-full relative" onClick={onFocus}>
       {/* Terminal toolbar */}
       <div className={cn(
         'h-9 bg-[var(--bg-card)] border-b border-[var(--border)] flex items-center px-3 justify-between shrink-0',
@@ -459,10 +491,53 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
             </>
           )}
           {terminal.isClaudeMode && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-[var(--success)]/20 text-[var(--success)]">
-              <Bot className={cn('w-3.5 h-3.5', terminal.isClaudeBusy && 'animate-pulse')} />
-              {!isSplit && (terminal.isClaudeBusy ? 'Thinking...' : 'Claude Active')}
-            </div>
+            <>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Start capturing output to extract the URL
+                  rcBufferRef.current = '';
+                  if (rcTimeoutRef.current) clearTimeout(rcTimeoutRef.current);
+                  rcTimeoutRef.current = setTimeout(() => { rcBufferRef.current = null; rcTimeoutRef.current = null; }, 15000);
+                  // Send text first, then Enter separately (mimics typing)
+                  window.electronAPI.sendTerminalInput(terminal.id, '/remote-control');
+                  setTimeout(() => window.electronAPI.sendTerminalInput(terminal.id, '\r'), 50);
+                }}
+                disabled={terminal.isClaudeBusy}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors',
+                  terminal.isClaudeBusy
+                    ? 'bg-[var(--text-muted)]/10 text-[var(--text-muted)] cursor-not-allowed opacity-50'
+                    : 'bg-violet-500/20 text-violet-400 hover:bg-violet-500/30'
+                )}
+                title={terminal.isClaudeBusy ? 'Wait for Claude to finish' : 'Open remote control (mobile access)'}
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                {!isSplit && 'Mobile'}
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Ctrl+U clears the current input line
+                  window.electronAPI.sendTerminalInput(terminal.id, '\x15');
+                }}
+                disabled={terminal.isClaudeBusy}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors',
+                  terminal.isClaudeBusy
+                    ? 'bg-[var(--text-muted)]/10 text-[var(--text-muted)] cursor-not-allowed opacity-50'
+                    : 'bg-orange-500/20 text-orange-400 hover:bg-orange-500/30'
+                )}
+                title={terminal.isClaudeBusy ? 'Wait for Claude to finish' : 'Clear input text'}
+              >
+                <Eraser className="w-3.5 h-3.5" />
+                {!isSplit && 'Clear'}
+              </button>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-[var(--success)]/20 text-[var(--success)]">
+                <Bot className={cn('w-3.5 h-3.5', terminal.isClaudeBusy && 'animate-pulse')} />
+                {!isSplit && (terminal.isClaudeBusy ? 'Thinking...' : 'Claude Active')}
+              </div>
+            </>
           )}
           {isSplit && onClose && (
             <button
@@ -475,6 +550,75 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
           )}
         </div>
       </div>
+
+      {/* Remote control dialog */}
+      {remoteUrl && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={(e) => { e.stopPropagation(); setRemoteUrl(null); }}
+        >
+          <div
+            className="bg-[#1a1a2e] border border-violet-500/30 rounded-xl p-6 shadow-2xl flex flex-col items-center gap-4 max-w-sm mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 text-violet-300">
+              <Smartphone className="w-5 h-5" />
+              <span className="text-sm font-medium">Remote Control</span>
+            </div>
+
+            <div className="bg-white rounded-lg p-3">
+              {qrDataUrl
+                ? <img src={qrDataUrl} alt="QR Code" className="w-[180px] h-[180px]" />
+                : <div className="w-[180px] h-[180px] flex items-center justify-center text-xs text-[var(--text-muted)]">Generating...</div>
+              }
+            </div>
+
+            <p className="text-[11px] text-[var(--text-muted)] text-center">
+              Scan with your phone or copy the link below
+            </p>
+
+            <div className="flex items-center gap-2 w-full bg-[#0f0f23] rounded-lg px-3 py-2 border border-[var(--border)]">
+              <span className="text-[11px] text-violet-300 font-mono truncate flex-1 select-all">{remoteUrl}</span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigator.clipboard.writeText(remoteUrl);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }}
+                className={cn(
+                  'flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] transition-colors shrink-0',
+                  copied
+                    ? 'bg-emerald-500/20 text-emerald-400'
+                    : 'bg-violet-500/20 text-violet-300 hover:bg-violet-500/30'
+                )}
+              >
+                {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+
+            <div className="flex gap-2 w-full">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.electronAPI?.openExternal?.(remoteUrl);
+                }}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-violet-500/20 text-violet-300 hover:bg-violet-500/30 transition-colors"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                Open in Browser
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setRemoteUrl(null); }}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-[var(--text-muted)]/10 text-[var(--text-muted)] hover:bg-[var(--text-muted)]/20 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Terminal container */}
       <div ref={containerRef} className="flex-1 bg-[#0f0f23] p-1" />

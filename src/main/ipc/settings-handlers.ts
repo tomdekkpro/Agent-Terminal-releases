@@ -23,7 +23,7 @@ export function getSettings(): AppSettings {
     settingsCache = { ...DEFAULT_SETTINGS };
   }
 
-  return settingsCache;
+  return settingsCache!;
 }
 
 function saveSettings(settings: AppSettings): void {

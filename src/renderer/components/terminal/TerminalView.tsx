@@ -29,7 +29,7 @@ function TaskPickerModal({
   const [search, setSearch] = useState('');
   const [selectedTask, setSelectedTask] = useState<ClickUpTask | null>(null);
   const [includeClosed, setIncludeClosed] = useState(false);
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   const doSearch = useCallback(async (query: string, closed: boolean) => {
     const result = await window.electronAPI.searchClickUpTasks(
@@ -500,8 +500,6 @@ export function TerminalView({ projectId }: TerminalViewProps) {
   })();
 
   // Terminals in the active group
-  const activeGroupTerminals = terminals.filter((t) => t.groupId === activeGroupId);
-  const isSplit = activeGroupTerminals.length > 1;
 
   // Inline tab rename state
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);

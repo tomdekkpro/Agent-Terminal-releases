@@ -1,6 +1,6 @@
 {
   "name": "agent-terminal",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "Agent Terminal - AI-powered terminal with ClickUp integration",
   "author": {
     "name": "tomdekkpro",
@@ -131,6 +131,7 @@
     "clsx": "^2.1.0",
     "electron-updater": "^6.8.3",
     "lucide-react": "^0.460.0",
+    "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^2.6.0",
@@ -139,6 +140,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.0",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/uuid": "^10.0.0",

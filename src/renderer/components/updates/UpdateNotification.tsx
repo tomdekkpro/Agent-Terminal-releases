@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Download, RefreshCw, X, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Download, RefreshCw, X, CheckCircle, Loader2 } from 'lucide-react';
 import { cn } from '../../../shared/utils';
 
 interface UpdateStatus {
@@ -21,7 +21,7 @@ export function UpdateNotification() {
         setDismissed(false);
       }
     });
-    return cleanup;
+    return () => { cleanup(); };
   }, []);
 
   const handleDownload = useCallback(async () => {

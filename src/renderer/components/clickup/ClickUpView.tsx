@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { RefreshCw, Search, ExternalLink, AlertCircle, CheckSquare, Filter, X, ChevronDown } from 'lucide-react';
+import { RefreshCw, Search, ExternalLink, AlertCircle, CheckSquare, Filter, X } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settings-store';
 import { cn } from '../../../shared/utils';
 import type { ClickUpTask } from '../../../shared/types';
@@ -18,7 +18,7 @@ export function ClickUpView() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTask, setSelectedTask] = useState<ClickUpTask | null>(null);
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   // Filters
   const [showFilters, setShowFilters] = useState(false);

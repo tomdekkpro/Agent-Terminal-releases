@@ -9,7 +9,7 @@ import type { IpcMain, BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { fetchUsageData, isClaudeAvailable } from '../usage/usage-service';
 import type { UsageSnapshot } from '../../shared/types';
-import { debugLog, debugError } from '../../shared/utils';
+import { debugError } from '../../shared/utils';
 
 let pollingInterval: NodeJS.Timeout | null = null;
 let cachedUsage: UsageSnapshot | null = null;

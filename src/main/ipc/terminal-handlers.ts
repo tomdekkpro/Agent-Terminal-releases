@@ -7,7 +7,7 @@ import { loadTerminalState, saveTerminalState, loadOutputBuffers, type SavedTerm
 export function registerTerminalHandlers(
   ipcMain: IpcMain,
   terminalManager: TerminalManager,
-  getWindow: WindowGetter
+  _getWindow: WindowGetter
 ): void {
   ipcMain.handle(IPC_CHANNELS.TERMINAL_CREATE, async (_event, options) => {
     return terminalManager.create(options);
