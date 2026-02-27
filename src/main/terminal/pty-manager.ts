@@ -14,15 +14,22 @@ function isWindows(): boolean {
   return process.platform === 'win32';
 }
 
-function detectShellType(shellPath: string): 'cmd' | 'powershell' {
+function detectShellType(shellPath: string): 'cmd' | 'powershell' | 'bash' {
   const filename = shellPath.split(/[/\\]/).pop()?.toLowerCase() || '';
-  if (filename === 'powershell.exe') return 'powershell';
+  if (filename === 'powershell.exe' || filename === 'pwsh.exe') return 'powershell';
+  if (
+    filename === 'bash.exe' ||
+    filename === 'git-bash.exe' ||
+    filename === 'zsh.exe' ||
+    filename === 'sh.exe' ||
+    filename === 'fish.exe'
+  ) return 'bash';
   return 'cmd';
 }
 
 export interface SpawnPtyResult {
   pty: pty.IPty;
-  shellType?: 'cmd' | 'powershell';
+  shellType?: 'cmd' | 'powershell' | 'bash';
 }
 
 export function spawnPtyProcess(
@@ -32,7 +39,7 @@ export function spawnPtyProcess(
   profileEnv?: Record<string, string>
 ): SpawnPtyResult {
   let shell: string;
-  let shellType: 'cmd' | 'powershell' | undefined;
+  let shellType: 'cmd' | 'powershell' | 'bash' | undefined;
 
   if (isWindows()) {
     shell = process.env.COMSPEC || 'cmd.exe';

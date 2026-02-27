@@ -13,7 +13,9 @@ export const IPC_CHANNELS = {
   TERMINAL_TITLE_CHANGE: 'terminal:title-change',
   TERMINAL_PENDING_RESUME: 'terminal:pending-resume',
   TERMINAL_STATE_SAVE: 'terminal:state-save',
+  TERMINAL_STATE_SAVE_SYNC: 'terminal:state-save-sync',
   TERMINAL_STATE_LOAD: 'terminal:state-load',
+  TERMINAL_BUFFERS_LOAD: 'terminal:buffers-load',
   // ClickUp
   CLICKUP_CHECK_CONNECTION: 'clickup:check-connection',
   CLICKUP_GET_TASKS: 'clickup:get-tasks',

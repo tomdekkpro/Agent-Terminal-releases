@@ -8,6 +8,7 @@ export interface TerminalProcess {
   isClaudeMode: boolean;
   cwd: string;
   claudeSessionId?: string;
+  claudeCwd?: string;
   outputBuffer: string;
   title: string;
   shellType?: WindowsShellType;

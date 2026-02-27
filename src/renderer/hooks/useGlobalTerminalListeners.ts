@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useTerminalStore } from '../stores/terminal-store';
+import { useTerminalStore, flushTerminalStateSync } from '../stores/terminal-store';
 
 /** Sync all running/paused timers to ClickUp (fire-and-forget) */
 function syncAllTimers() {
@@ -53,9 +53,20 @@ export function useGlobalTerminalListeners() {
       })
     );
 
-    // Sync timers to ClickUp before app closes
-    window.addEventListener('beforeunload', syncAllTimers);
-    cleanups.push(() => window.removeEventListener('beforeunload', syncAllTimers));
+    // Listen for Claude session ID detection
+    cleanups.push(
+      window.electronAPI.onTerminalClaudeSession((id, sessionId) => {
+        updateTerminal(id, { claudeSessionId: sessionId });
+      })
+    );
+
+    // Flush terminal state and sync timers to ClickUp before app closes
+    const handleBeforeUnload = () => {
+      flushTerminalStateSync();
+      syncAllTimers();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    cleanups.push(() => window.removeEventListener('beforeunload', handleBeforeUnload));
 
     return () => cleanups.forEach((c) => c());
   }, [updateTerminal, setTerminalStatus]);

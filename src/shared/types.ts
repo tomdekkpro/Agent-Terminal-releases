@@ -1,4 +1,4 @@
-export type WindowsShellType = 'cmd' | 'powershell';
+export type WindowsShellType = 'cmd' | 'powershell' | 'bash';
 
 export interface TerminalCreateOptions {
   id: string;

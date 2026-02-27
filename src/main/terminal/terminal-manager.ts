@@ -1,10 +1,51 @@
 import * as os from 'os';
+import { readdirSync, statSync, existsSync } from 'fs';
+import { join } from 'path';
 import type { TerminalCreateOptions } from '../../shared/types';
 import type { TerminalProcess, WindowGetter, TerminalOperationResult } from './types';
 import * as PtyManager from './pty-manager';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { debugLog, debugError } from '../../shared/utils';
 import { extractCostFromOutput } from '../usage/usage-service';
+
+/** Encode a project path to match Claude Code's project directory naming */
+function encodeProjectPath(cwd: string): string {
+  return cwd.replace(/[:/\\]/g, '-');
+}
+
+/** Get Claude Code's project data directory for a given cwd */
+function getClaudeProjectDir(cwd: string): string {
+  return join(os.homedir(), '.claude', 'projects', encodeProjectPath(cwd));
+}
+
+/** Build the cd command, clear command, and separator for a given shell type */
+function buildShellCommand(
+  shellType: string | undefined,
+  dir: string,
+): { cdCmd: string; clearCmd: string; separator: string } {
+  if (shellType === 'powershell') {
+    return { cdCmd: `cd "${dir}"`, clearCmd: 'cls', separator: '; ' };
+  }
+  if (shellType === 'bash') {
+    // Git Bash / bash.exe on Windows: POSIX-style cd, no /d flag needed
+    return { cdCmd: `cd "${dir}"`, clearCmd: 'clear', separator: ' && ' };
+  }
+  // cmd.exe (default): use /d to handle drive-letter changes
+  return { cdCmd: `cd /d "${dir}"`, clearCmd: 'cls', separator: ' && ' };
+}
+
+/** Get snapshot of existing session files with their mtimes */
+function getSessionSnapshot(claudeDir: string): Map<string, number> {
+  const result = new Map<string, number>();
+  try {
+    if (!existsSync(claudeDir)) return result;
+    for (const f of readdirSync(claudeDir)) {
+      if (!f.endsWith('.jsonl')) continue;
+      result.set(f, statSync(join(claudeDir, f)).mtimeMs);
+    }
+  } catch { /* ignore */ }
+  return result;
+}
 
 export class TerminalManager {
   private terminals: Map<string, TerminalProcess> = new Map();
@@ -47,7 +88,7 @@ export class TerminalManager {
         this.terminals,
         this.getWindow,
         (term, data) => this.handleTerminalData(term, data),
-        (_term) => {}
+        (_term) => { }
       );
 
       return { success: true };
@@ -105,11 +146,41 @@ export class TerminalManager {
 
     terminal.isClaudeMode = true;
     const dir = cwd || terminal.cwd;
-    const separator = terminal.shellType === 'powershell' ? '; ' : ' && ';
+    terminal.claudeCwd = dir;
+
+    // Snapshot existing sessions before Claude starts (for session ID detection)
+    const claudeDir = getClaudeProjectDir(dir);
+    const preSnapshot = getSessionSnapshot(claudeDir);
+
+    // Build cd + clear + claude command with correct separator for each shell type
+    const { cdCmd, clearCmd, separator } = buildShellCommand(terminal.shellType, dir);
     const claudeCmd = skipPermissions ? 'claude --dangerously-skip-permissions' : 'claude';
-    // Use "cd /d" on cmd.exe to handle drive letter changes on Windows
-    const cdCmd = terminal.shellType === 'cmd' ? `cd /d "${dir}"` : `cd "${dir}"`;
-    const command = `${cdCmd}${separator}${claudeCmd}\r`;
+    const command = `${cdCmd}${separator}${clearCmd}${separator}${claudeCmd}\r`;
+    PtyManager.writeToPty(terminal, command);
+
+    const win = this.getWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(IPC_CHANNELS.TERMINAL_TITLE_CHANGE, id, 'Claude Code');
+    }
+
+    // Detect which session Claude opened/created
+    this.detectSessionId(terminal, claudeDir, preSnapshot);
+  }
+
+  resumeClaude(id: string, sessionId?: string, cwd?: string): void {
+    const terminal = this.terminals.get(id);
+    if (!terminal) return;
+
+    terminal.isClaudeMode = true;
+    const dir = cwd || terminal.claudeCwd || terminal.cwd;
+    terminal.claudeCwd = dir;
+
+    // Build resume command with clear to hide the shell echo before Claude starts
+    const { cdCmd, clearCmd, separator } = buildShellCommand(terminal.shellType, dir);
+    const claudeCmd = sessionId
+      ? `claude --resume "${sessionId}"`
+      : 'claude --continue';
+    const command = `${cdCmd}${separator}${clearCmd}${separator}${claudeCmd}\r`;
     PtyManager.writeToPty(terminal, command);
 
     const win = this.getWindow();
@@ -118,13 +189,48 @@ export class TerminalManager {
     }
   }
 
-  resumeClaude(id: string): void {
-    const terminal = this.terminals.get(id);
-    if (!terminal) return;
+  /** Poll the Claude project directory to detect which session file was created/modified */
+  private detectSessionId(
+    terminal: TerminalProcess,
+    claudeDir: string,
+    preSnapshot: Map<string, number>,
+  ): void {
+    let attempts = 0;
+    const MAX_ATTEMPTS = 45; // ~47s total (2s initial delay + 1s per poll)
 
-    terminal.isClaudeMode = true;
-    const command = 'claude --continue\r';
-    PtyManager.writeToPty(terminal, command);
+    const poll = () => {
+      attempts++;
+      if (attempts > MAX_ATTEMPTS || terminal.hasExited || terminal.claudeSessionId) return;
+
+      try {
+        if (!existsSync(claudeDir)) {
+          setTimeout(poll, 1000);
+          return;
+        }
+
+        for (const f of readdirSync(claudeDir)) {
+          if (!f.endsWith('.jsonl')) continue;
+          const mtime = statSync(join(claudeDir, f)).mtimeMs;
+          const prevMtime = preSnapshot.get(f);
+
+          // New file or file modified since snapshot
+          if (prevMtime === undefined || mtime > prevMtime + 500) {
+            terminal.claudeSessionId = f.replace('.jsonl', '');
+            debugLog('[TerminalManager] Detected Claude session:', terminal.claudeSessionId, 'for terminal:', terminal.id);
+            // Notify renderer so it can save in store
+            const win = this.getWindow();
+            if (win && !win.isDestroyed()) {
+              win.webContents.send(IPC_CHANNELS.TERMINAL_CLAUDE_SESSION, terminal.id, terminal.claudeSessionId);
+            }
+            return;
+          }
+        }
+      } catch { /* ignore */ }
+
+      setTimeout(poll, 1000);
+    };
+
+    setTimeout(poll, 2000);
   }
 
   setTitle(id: string, title: string): void {
@@ -132,6 +238,16 @@ export class TerminalManager {
     if (terminal) {
       terminal.title = title;
     }
+  }
+
+  getOutputBuffers(): Record<string, string> {
+    const buffers: Record<string, string> = {};
+    this.terminals.forEach((terminal, id) => {
+      if (terminal.outputBuffer) {
+        buffers[id] = terminal.outputBuffer;
+      }
+    });
+    return buffers;
   }
 
   getActiveTerminalIds(): string[] {

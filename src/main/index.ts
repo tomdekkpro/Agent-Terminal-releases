@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell, Menu, Tray, nativeImage } from 'electron';
 import { join } from 'path';
 import { TerminalManager } from './terminal/terminal-manager';
+import { saveOutputBuffers } from './terminal/terminal-state-store';
 import { registerTerminalHandlers } from './ipc/terminal-handlers';
 import { registerClickUpHandlers } from './ipc/clickup-handlers';
 import { registerSettingsHandlers } from './ipc/settings-handlers';
@@ -111,6 +112,8 @@ app.on('window-all-closed', () => {
 app.on('before-quit', async () => {
   stopUsagePolling();
   if (terminalManager) {
+    // Save output buffers before killing terminals so they can be restored
+    saveOutputBuffers(terminalManager.getOutputBuffers());
     await terminalManager.killAll();
   }
 });

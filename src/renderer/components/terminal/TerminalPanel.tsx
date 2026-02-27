@@ -3,7 +3,7 @@ import { Bot, X, ExternalLink, GitBranch, GitMerge, Play, Square, Clock } from '
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { registerOutputCallback, unregisterOutputCallback, useTerminalStore, type Terminal } from '../../stores/terminal-store';
+import { registerOutputCallback, unregisterOutputCallback, getAndClearSavedBuffer, useTerminalStore, type Terminal } from '../../stores/terminal-store';
 import { cn } from '../../../shared/utils';
 
 /** Format milliseconds to HH:MM:SS */
@@ -100,6 +100,11 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
     }
   }, [isTimerRunning, terminal.id, terminal.clickUpTask, startTimer, stopTimer]);
 
+  // Inline title rename state
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const updateTerminal = useTerminalStore((s) => s.updateTerminal);
+
   /** Safe fit — xterm can throw if renderer isn't fully ready */
   const safeFit = () => {
     try {
@@ -127,6 +132,14 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
     if (!containerRef.current) return;
     const container = containerRef.current;
     let disposed = false;
+
+    // Restore saved output from previous session (before live data arrives)
+    // Skip for Claude terminals — claude --resume displays its own conversation history
+    const savedBuffer = getAndClearSavedBuffer(terminal.id);
+    if (savedBuffer && !terminal.isClaudeMode) {
+      bufferRef.current.push(savedBuffer);
+      bufferRef.current.push('\r\n\x1b[90m--- Session restored ---\x1b[0m\r\n\r\n');
+    }
 
     // Buffer output from the very start, before xterm even exists
     registerOutputCallback(terminal.id, (data) => {
@@ -318,7 +331,40 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
         isSplit && isActive && 'border-b-[var(--accent)]'
       )}>
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <span className="text-xs text-[var(--text-secondary)] truncate shrink-0">{terminal.title}</span>
+          {isEditingTitle ? (
+            <input
+              className="text-xs text-[var(--text-primary)] bg-transparent outline-none border-b border-[var(--accent)] truncate shrink-0 py-0 w-[120px]"
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const trimmed = editTitle.trim();
+                  if (trimmed) updateTerminal(terminal.id, { title: trimmed });
+                  setIsEditingTitle(false);
+                } else if (e.key === 'Escape') {
+                  setIsEditingTitle(false);
+                }
+              }}
+              onBlur={() => {
+                const trimmed = editTitle.trim();
+                if (trimmed) updateTerminal(terminal.id, { title: trimmed });
+                setIsEditingTitle(false);
+              }}
+              autoFocus
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <span
+              className="text-xs text-[var(--text-secondary)] truncate shrink-0"
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setIsEditingTitle(true);
+                setEditTitle(terminal.title);
+              }}
+            >
+              {terminal.title}
+            </span>
+          )}
           {terminal.clickUpTask && (
             <button
               onClick={(e) => {

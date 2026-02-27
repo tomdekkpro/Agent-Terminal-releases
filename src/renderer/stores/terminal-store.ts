@@ -26,6 +26,8 @@ export interface Terminal {
   createdAt: Date;
   isClaudeMode: boolean;
   isClaudeBusy?: boolean;
+  claudeSessionId?: string;
+  claudeCwd?: string;
   projectId?: string;
   clickUpTask?: TerminalClickUpTask;
   worktreePath?: string;
@@ -36,6 +38,16 @@ export interface Terminal {
 // Output callback registry
 const xtermCallbacks = new Map<string, (data: string) => void>();
 
+// Saved output buffers from previous session (consumed once on terminal mount)
+const savedOutputBuffers = new Map<string, string>();
+
+/** Get and consume saved output buffer for a restored terminal */
+export function getAndClearSavedBuffer(id: string): string | undefined {
+  const buffer = savedOutputBuffers.get(id);
+  if (buffer) savedOutputBuffers.delete(id);
+  return buffer;
+}
+
 export function registerOutputCallback(terminalId: string, callback: (data: string) => void): void {
   xtermCallbacks.set(terminalId, callback);
 }
@@ -44,33 +56,51 @@ export function unregisterOutputCallback(terminalId: string): void {
   xtermCallbacks.delete(terminalId);
 }
 
+// Build saveable state snapshot
+function buildSaveableState(state: TerminalState) {
+  const saveable = state.terminals
+    .filter((t) => t.status !== 'exited')
+    .map((t) => ({
+      id: t.id,
+      groupId: t.groupId,
+      title: t.title,
+      cwd: t.cwd,
+      projectId: t.projectId,
+      isClaudeMode: t.isClaudeMode,
+      claudeSessionId: t.claudeSessionId,
+      claudeCwd: t.claudeCwd,
+      clickUpTask: t.clickUpTask,
+      worktreePath: t.worktreePath,
+      worktreeBranch: t.worktreeBranch,
+      timeTracking: t.timeTracking,
+    }));
+
+  return {
+    terminals: saveable,
+    activeTerminalId: state.activeTerminalId,
+    activeGroupId: state.activeGroupId,
+  };
+}
+
 // Debounced save
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
 function debouncedSaveState(state: TerminalState): void {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    const saveable = state.terminals
-      .filter((t) => t.status !== 'exited')
-      .map((t) => ({
-        id: t.id,
-        groupId: t.groupId,
-        title: t.title,
-        cwd: t.cwd,
-        projectId: t.projectId,
-        isClaudeMode: t.isClaudeMode,
-        clickUpTask: t.clickUpTask,
-        worktreePath: t.worktreePath,
-        worktreeBranch: t.worktreeBranch,
-        timeTracking: t.timeTracking,
-      }));
-
-    window.electronAPI?.saveTerminalState?.({
-      terminals: saveable,
-      activeTerminalId: state.activeTerminalId,
-      activeGroupId: state.activeGroupId,
-    });
+    window.electronAPI?.saveTerminalState?.(buildSaveableState(state));
   }, 500);
+}
+
+/** Flush terminal state to disk synchronously (for use in beforeunload) */
+export function flushTerminalStateSync(): void {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  const state = useTerminalStore.getState();
+  if (!state.isRestored) return;
+  window.electronAPI?.saveTerminalStateSync?.(buildSaveableState(state));
 }
 
 interface TerminalState {
@@ -336,7 +366,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   writeToTerminal: (terminalId: string, data: string) => {
     const callback = xtermCallbacks.get(terminalId);
     if (callback) {
-      try { callback(data); } catch {}
+      try { callback(data); } catch { }
     }
   },
 
@@ -354,14 +384,26 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         return [];
       }
 
+      // Load saved output buffers from previous session
+      try {
+        const buffersResult = await window.electronAPI.loadTerminalBuffers();
+        if (buffersResult.success && buffersResult.data) {
+          for (const [id, buffer] of Object.entries(buffersResult.data)) {
+            savedOutputBuffers.set(id, buffer as string);
+          }
+        }
+      } catch { /* non-critical — terminals restore without history */ }
+
       const restored: Terminal[] = saved.terminals.map((t: any) => ({
         id: t.id,
         groupId: t.groupId,
         title: t.title,
-        status: 'idle' as TerminalStatus,
+        status: (t.isClaudeMode ? 'claude-active' : 'idle') as TerminalStatus,
         cwd: t.cwd || '',
         createdAt: new Date(),
-        isClaudeMode: false,
+        isClaudeMode: t.isClaudeMode || false,
+        claudeSessionId: t.claudeSessionId,
+        claudeCwd: t.claudeCwd,
         projectId: t.projectId,
         clickUpTask: t.clickUpTask,
         worktreePath: t.worktreePath,
@@ -397,6 +439,7 @@ useTerminalStore.subscribe((state) => {
     projects: state.terminals.map((t) => t.projectId || '').join(','),
     active: state.activeTerminalId,
     activeGroup: state.activeGroupId,
+    claude: state.terminals.map((t) => `${t.isClaudeMode ? 1 : 0}:${t.claudeSessionId || ''}`).join(','),
     worktrees: state.terminals.map((t) => t.worktreeBranch || '').join(','),
     tasks: state.terminals.map((t) => t.clickUpTask?.id || '').join(','),
     timers: state.terminals.map((t) => `${t.timeTracking?.startedAt || 0}:${t.timeTracking?.elapsed || 0}`).join(','),

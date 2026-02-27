@@ -79,6 +79,12 @@ export default function App() {
           cols: 80,
           rows: 24,
         });
+        // Resume Claude session if it was active when app closed
+        if (terminal.isClaudeMode) {
+          // Prefer claudeCwd (the dir Claude was actually running in) over the shell's cwd
+          const resumeCwd = terminal.claudeCwd || terminal.cwd;
+          await window.electronAPI.resumeClaude(terminal.id, terminal.claudeSessionId, resumeCwd);
+        }
       } catch {
         // Terminal creation failed — mark as exited
         useTerminalStore.getState().setTerminalStatus(terminal.id, 'exited');

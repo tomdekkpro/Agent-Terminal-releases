@@ -503,6 +503,11 @@ export function TerminalView({ projectId }: TerminalViewProps) {
   const activeGroupTerminals = terminals.filter((t) => t.groupId === activeGroupId);
   const isSplit = activeGroupTerminals.length > 1;
 
+  // Inline tab rename state
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState('');
+  const updateTerminal = useTerminalStore((s) => s.updateTerminal);
+
   const [showTaskPicker, setShowTaskPicker] = useState(false);
   const [taskPickerMode, setTaskPickerMode] = useState<'tab' | 'split'>('tab');
   const [showNewMenu, setShowNewMenu] = useState(false);
@@ -1073,12 +1078,43 @@ export function TerminalView({ projectId }: TerminalViewProps) {
               ) : (
                 <TerminalIcon className="w-3.5 h-3.5 shrink-0" />
               )}
-              <span className="truncate max-w-[120px]">
-                {firstTerminal.title}
-                {isGroupSplit && (
-                  <span className="text-[var(--text-muted)] ml-1">+{groupTerminals.length - 1}</span>
-                )}
-              </span>
+              {editingGroupId === groupId ? (
+                <input
+                  className="bg-transparent text-xs text-[var(--text-primary)] outline-none border-b border-[var(--accent)] w-[120px] py-0"
+                  value={editingTitle}
+                  onChange={(e) => setEditingTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const trimmed = editingTitle.trim();
+                      if (trimmed) updateTerminal(firstTerminal.id, { title: trimmed });
+                      setEditingGroupId(null);
+                    } else if (e.key === 'Escape') {
+                      setEditingGroupId(null);
+                    }
+                  }}
+                  onBlur={() => {
+                    const trimmed = editingTitle.trim();
+                    if (trimmed) updateTerminal(firstTerminal.id, { title: trimmed });
+                    setEditingGroupId(null);
+                  }}
+                  autoFocus
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <span
+                  className="truncate max-w-[120px]"
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setEditingGroupId(groupId);
+                    setEditingTitle(firstTerminal.title);
+                  }}
+                >
+                  {firstTerminal.title}
+                  {isGroupSplit && (
+                    <span className="text-[var(--text-muted)] ml-1">+{groupTerminals.length - 1}</span>
+                  )}
+                </span>
+              )}
               {firstTerminal.status === 'exited' && !isGroupSplit && (
                 <span className="text-[10px] text-[var(--error)]">exited</span>
               )}

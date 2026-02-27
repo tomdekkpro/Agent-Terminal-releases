@@ -2,7 +2,7 @@ import type { IpcMain } from 'electron';
 import type { TerminalManager } from '../terminal/terminal-manager';
 import type { WindowGetter } from '../terminal/types';
 import { IPC_CHANNELS } from '../../shared/constants';
-import { loadTerminalState, saveTerminalState, type SavedTerminalState } from '../terminal/terminal-state-store';
+import { loadTerminalState, saveTerminalState, loadOutputBuffers, type SavedTerminalState } from '../terminal/terminal-state-store';
 
 export function registerTerminalHandlers(
   ipcMain: IpcMain,
@@ -30,8 +30,8 @@ export function registerTerminalHandlers(
     return { success: true };
   });
 
-  ipcMain.handle(IPC_CHANNELS.TERMINAL_RESUME_CLAUDE, async (_event, id: string) => {
-    terminalManager.resumeClaude(id);
+  ipcMain.handle(IPC_CHANNELS.TERMINAL_RESUME_CLAUDE, async (_event, id: string, sessionId?: string, cwd?: string) => {
+    terminalManager.resumeClaude(id, sessionId, cwd);
     return { success: true };
   });
 
@@ -40,8 +40,18 @@ export function registerTerminalHandlers(
     return { success: true, data: loadTerminalState() };
   });
 
+  ipcMain.handle(IPC_CHANNELS.TERMINAL_BUFFERS_LOAD, async () => {
+    return { success: true, data: loadOutputBuffers() };
+  });
+
   ipcMain.handle(IPC_CHANNELS.TERMINAL_STATE_SAVE, async (_event, state: SavedTerminalState) => {
     saveTerminalState(state);
     return { success: true };
+  });
+
+  // Synchronous save for beforeunload (ensures state is flushed before renderer is destroyed)
+  ipcMain.on(IPC_CHANNELS.TERMINAL_STATE_SAVE_SYNC, (event, state: SavedTerminalState) => {
+    saveTerminalState(state);
+    event.returnValue = true;
   });
 }

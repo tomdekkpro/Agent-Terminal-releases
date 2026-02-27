@@ -8,9 +8,11 @@ const electronAPI = {
   sendTerminalInput: (id: string, data: string) => ipcRenderer.send(IPC_CHANNELS.TERMINAL_WRITE, id, data),
   resizeTerminal: (id: string, cols: number, rows: number) => ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESIZE, id, cols, rows),
   invokeClaude: (id: string, cwd?: string, skipPermissions?: boolean) => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_INVOKE_CLAUDE, id, cwd, skipPermissions),
-  resumeClaude: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_RESUME_CLAUDE, id),
+  resumeClaude: (id: string, sessionId?: string, cwd?: string) => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_RESUME_CLAUDE, id, sessionId, cwd),
   saveTerminalState: (state: any) => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_STATE_SAVE, state),
+  saveTerminalStateSync: (state: any) => ipcRenderer.sendSync(IPC_CHANNELS.TERMINAL_STATE_SAVE_SYNC, state),
   loadTerminalState: () => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_STATE_LOAD),
+  loadTerminalBuffers: () => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_BUFFERS_LOAD),
 
   // Terminal events
   onTerminalOutput: (callback: (id: string, data: string) => void) => {
@@ -32,6 +34,11 @@ const electronAPI = {
     const handler = (_event: any, id: string, isBusy: boolean) => callback(id, isBusy);
     ipcRenderer.on(IPC_CHANNELS.TERMINAL_CLAUDE_BUSY, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_CLAUDE_BUSY, handler);
+  },
+  onTerminalClaudeSession: (callback: (id: string, sessionId: string) => void) => {
+    const handler = (_event: any, id: string, sessionId: string) => callback(id, sessionId);
+    ipcRenderer.on(IPC_CHANNELS.TERMINAL_CLAUDE_SESSION, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_CLAUDE_SESSION, handler);
   },
 
   // ClickUp
