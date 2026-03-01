@@ -10,7 +10,7 @@ const sections: { id: SettingsSection; icon: typeof Terminal; label: string; des
   { id: 'general', icon: Info, label: 'General', description: 'Version and update settings' },
   { id: 'terminal', icon: Terminal, label: 'Terminal', description: 'Font, cursor, and display settings' },
   { id: 'clickup', icon: CheckSquare, label: 'ClickUp', description: 'Task management integration' },
-  { id: 'agent', icon: Bot, label: 'Agent', description: 'Claude AI configuration' },
+  { id: 'agent', icon: Bot, label: 'Agent', description: 'AI copilot configuration' },
   { id: 'appearance', icon: Palette, label: 'Appearance', description: 'Theme and display options' },
 ];
 
@@ -481,17 +481,54 @@ export function SettingsView() {
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm text-[var(--text-secondary)] mb-1.5">Default Model</label>
+                  <label className="block text-sm text-[var(--text-secondary)] mb-1.5">Default Copilot Provider</label>
                   <select
-                    value={localSettings.defaultModel}
-                    onChange={(e) => handleChange('defaultModel', e.target.value)}
+                    value={localSettings.defaultCopilotProvider}
+                    onChange={(e) => handleChange('defaultCopilotProvider', e.target.value)}
                     className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
                   >
-                    <option value="claude-opus-4-6">Claude Opus 4.6</option>
-                    <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
-                    <option value="claude-haiku-4-5">Claude Haiku 4.5</option>
+                    <option value="claude">Claude Code</option>
+                    <option value="copilot">GitHub Copilot</option>
                   </select>
+                  <p className="text-[10px] text-[var(--text-muted)] mt-1">AI provider selected by default when creating new terminals</p>
                 </div>
+
+                {localSettings.defaultCopilotProvider === 'claude' ? (
+                  <div>
+                    <label className="block text-sm text-[var(--text-secondary)] mb-1.5">Default Model (Claude Code)</label>
+                    <select
+                      value={localSettings.defaultModel}
+                      onChange={(e) => handleChange('defaultModel', e.target.value)}
+                      className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
+                    >
+                      <option value="claude-opus-4-6">Claude Opus 4.6</option>
+                      <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+                      <option value="claude-haiku-4-5">Claude Haiku 4.5</option>
+                    </select>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm text-[var(--text-secondary)] mb-1.5">Default Model (GitHub Copilot)</label>
+                    <select
+                      value={localSettings.defaultCopilotModel}
+                      onChange={(e) => handleChange('defaultCopilotModel', e.target.value)}
+                      className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
+                    >
+                      <option value="claude-sonnet-4.5">Claude Sonnet 4.5 (default)</option>
+                      <option value="claude-opus-4.5">Claude Opus 4.5</option>
+                      <option value="claude-haiku-4.5">Claude Haiku 4.5</option>
+                      <option value="claude-sonnet-4">Claude Sonnet 4</option>
+                      <option value="gpt-5.1">GPT-5.1</option>
+                      <option value="gpt-5.1-codex-mini">GPT-5.1-Codex-Mini</option>
+                      <option value="gpt-5.1-codex">GPT-5.1-Codex</option>
+                      <option value="gpt-5">GPT-5</option>
+                      <option value="gpt-5-mini">GPT-5-Mini</option>
+                      <option value="gpt-4.1">GPT-4.1</option>
+                      <option value="gemini-3-pro-preview">Gemini 3 Pro</option>
+                    </select>
+                    <p className="text-[10px] text-[var(--text-muted)] mt-1">You can also switch models at runtime with the /model command</p>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-sm text-[var(--text-secondary)] mb-1.5">Working Directory</label>

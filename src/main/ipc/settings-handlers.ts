@@ -7,6 +7,12 @@ import { DEFAULT_SETTINGS, type AppSettings } from '../../shared/types';
 const SETTINGS_DIR = join(app.getPath('userData'), 'config');
 const SETTINGS_FILE = join(SETTINGS_DIR, 'settings.json');
 
+const VALID_COPILOT_MODELS = new Set([
+  'claude-sonnet-4.5', 'claude-opus-4.5', 'claude-haiku-4.5', 'claude-sonnet-4',
+  'gpt-5.1', 'gpt-5.1-codex-mini', 'gpt-5.1-codex', 'gpt-5', 'gpt-5-mini',
+  'gpt-4.1', 'gemini-3-pro-preview',
+]);
+
 let settingsCache: AppSettings | null = null;
 
 export function getSettings(): AppSettings {
@@ -21,6 +27,11 @@ export function getSettings(): AppSettings {
     }
   } catch {
     settingsCache = { ...DEFAULT_SETTINGS };
+  }
+
+  // Migrate invalid copilot model IDs from older versions
+  if (settingsCache!.defaultCopilotModel && !VALID_COPILOT_MODELS.has(settingsCache!.defaultCopilotModel)) {
+    settingsCache!.defaultCopilotModel = DEFAULT_SETTINGS.defaultCopilotModel;
   }
 
   return settingsCache!;

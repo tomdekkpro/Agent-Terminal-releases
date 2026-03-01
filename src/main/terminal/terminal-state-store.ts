@@ -20,6 +20,7 @@ export interface SavedTerminal {
     statusColor: string;
     url: string;
   };
+  copilotProvider?: 'claude' | 'copilot';
   worktreePath?: string;
   worktreeBranch?: string;
 }

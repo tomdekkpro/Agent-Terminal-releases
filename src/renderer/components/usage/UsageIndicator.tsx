@@ -213,7 +213,7 @@ export function UsageIndicator() {
         onClick={handleClick}
         title="Claude Usage"
       >
-        <Icon className="h-3.5 w-3.5 flex-shrink-0" />
+        <Icon className="h-3.5 w-3.5 shrink-0" />
         <div className="flex items-center gap-0.5 text-[10px] font-semibold font-mono">
           <span className={getColorClass(sessionPercent)}>{Math.round(sessionPercent)}</span>
           <span className="text-[var(--text-muted)] opacity-50">|</span>

@@ -31,6 +31,7 @@ export async function listSessions(): Promise<InsightsSessionMeta[]> {
         title: session.title,
         messageCount: session.messages.length,
         model: session.model,
+        provider: session.provider,
         projectPath: session.projectPath,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,

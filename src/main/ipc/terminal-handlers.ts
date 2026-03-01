@@ -25,8 +25,16 @@ export function registerTerminalHandlers(
     terminalManager.resize(id, cols, rows);
   });
 
-  ipcMain.handle(IPC_CHANNELS.TERMINAL_INVOKE_CLAUDE, async (_event, id: string, cwd?: string, skipPermissions?: boolean) => {
-    terminalManager.invokeClaude(id, cwd, skipPermissions);
+  ipcMain.handle(IPC_CHANNELS.TERMINAL_INVOKE_CLAUDE, async (_event, id: string, cwd?: string, skipPermissions?: boolean, model?: string) => {
+    return terminalManager.invokeClaude(id, cwd, skipPermissions, model);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.TERMINAL_INVOKE_COPILOT, async (_event, id: string, cwd?: string, model?: string) => {
+    return terminalManager.invokeCopilot(id, cwd, model);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.TERMINAL_RESUME_COPILOT, async (_event, id: string, cwd?: string) => {
+    terminalManager.resumeCopilot(id, cwd);
     return { success: true };
   });
 

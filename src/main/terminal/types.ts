@@ -11,6 +11,7 @@ export interface TerminalProcess {
   claudeCwd?: string;
   outputBuffer: string;
   title: string;
+  copilotProvider?: 'claude' | 'copilot';
   shellType?: WindowsShellType;
   hasExited?: boolean;
 }

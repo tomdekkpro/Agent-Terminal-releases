@@ -1,4 +1,5 @@
 import * as os from 'os';
+import { execSync } from 'child_process';
 import { readdirSync, statSync, existsSync } from 'fs';
 import { join } from 'path';
 import type { TerminalCreateOptions } from '../../shared/types';
@@ -7,6 +8,17 @@ import * as PtyManager from './pty-manager';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { debugLog, debugError } from '../../shared/utils';
 import { extractCostFromOutput } from '../usage/usage-service';
+
+/** Check if a CLI command is available on the system PATH */
+function isCommandAvailable(command: string): boolean {
+  try {
+    const check = process.platform === 'win32' ? `where ${command}` : `which ${command}`;
+    execSync(check, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** Encode a project path to match Claude Code's project directory naming */
 function encodeProjectPath(cwd: string): string {
@@ -140,11 +152,16 @@ export class TerminalManager {
     return PtyManager.resizePty(terminal, cols, rows);
   }
 
-  invokeClaude(id: string, cwd?: string, skipPermissions?: boolean): void {
+  invokeClaude(id: string, cwd?: string, skipPermissions?: boolean, model?: string): { success: boolean; error?: string } {
     const terminal = this.terminals.get(id);
-    if (!terminal) return;
+    if (!terminal) return { success: false, error: 'Terminal not found' };
+
+    if (!isCommandAvailable('claude')) {
+      return { success: false, error: 'Claude Code CLI is not installed. Install it with: npm install -g @anthropic-ai/claude-code' };
+    }
 
     terminal.isClaudeMode = true;
+    terminal.copilotProvider = 'claude';
     const dir = cwd || terminal.cwd;
     terminal.claudeCwd = dir;
 
@@ -154,7 +171,8 @@ export class TerminalManager {
 
     // Build cd + clear + claude command with correct separator for each shell type
     const { cdCmd, clearCmd, separator } = buildShellCommand(terminal.shellType, dir);
-    const claudeCmd = skipPermissions ? 'claude --dangerously-skip-permissions' : 'claude';
+    let claudeCmd = skipPermissions ? 'claude --dangerously-skip-permissions' : 'claude';
+    if (model) claudeCmd += ` --model ${model}`;
     const command = `${cdCmd}${separator}${clearCmd}${separator}${claudeCmd}\r`;
     PtyManager.writeToPty(terminal, command);
 
@@ -165,6 +183,7 @@ export class TerminalManager {
 
     // Detect which session Claude opened/created
     this.detectSessionId(terminal, claudeDir, preSnapshot);
+    return { success: true };
   }
 
   resumeClaude(id: string, sessionId?: string, cwd?: string): void {
@@ -186,6 +205,48 @@ export class TerminalManager {
     const win = this.getWindow();
     if (win && !win.isDestroyed()) {
       win.webContents.send(IPC_CHANNELS.TERMINAL_TITLE_CHANGE, id, 'Claude Code');
+    }
+  }
+
+  invokeCopilot(id: string, cwd?: string, model?: string): { success: boolean; error?: string } {
+    const terminal = this.terminals.get(id);
+    if (!terminal) return { success: false, error: 'Terminal not found' };
+
+    if (!isCommandAvailable('copilot')) {
+      return { success: false, error: 'GitHub Copilot CLI is not installed. Install it with: npm install -g @github/copilot' };
+    }
+
+    terminal.isClaudeMode = true;
+    terminal.copilotProvider = 'copilot';
+    const dir = cwd || terminal.cwd;
+
+    const { cdCmd, clearCmd, separator } = buildShellCommand(terminal.shellType, dir);
+    const copilotCmd = model ? `copilot --model ${model}` : 'copilot';
+    const command = `${cdCmd}${separator}${clearCmd}${separator}${copilotCmd}\r`;
+    PtyManager.writeToPty(terminal, command);
+
+    const win = this.getWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(IPC_CHANNELS.TERMINAL_TITLE_CHANGE, id, 'GitHub Copilot');
+    }
+    return { success: true };
+  }
+
+  resumeCopilot(id: string, cwd?: string): void {
+    const terminal = this.terminals.get(id);
+    if (!terminal) return;
+
+    terminal.isClaudeMode = true;
+    terminal.copilotProvider = 'copilot';
+    const dir = cwd || terminal.cwd;
+
+    const { cdCmd, clearCmd, separator } = buildShellCommand(terminal.shellType, dir);
+    const command = `${cdCmd}${separator}${clearCmd}${separator}copilot --continue\r`;
+    PtyManager.writeToPty(terminal, command);
+
+    const win = this.getWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(IPC_CHANNELS.TERMINAL_TITLE_CHANGE, id, 'GitHub Copilot');
     }
   }
 
@@ -259,7 +320,7 @@ export class TerminalManager {
   }
 
   private handleTerminalData(terminal: TerminalProcess, data: string): void {
-    if (terminal.isClaudeMode) {
+    if (terminal.isClaudeMode && terminal.copilotProvider !== 'copilot') {
       // Detect Claude exit
       const exitPatterns = [/Goodbye!?\s*$/im, /Session ended/i];
       if (exitPatterns.some((p) => p.test(data))) {

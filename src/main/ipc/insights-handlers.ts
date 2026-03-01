@@ -1,7 +1,7 @@
 import type { BrowserWindow, IpcMain } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
 import { IPC_CHANNELS } from '../../shared/constants';
-import type { InsightsMessage, InsightsModel, InsightsSession } from '../../shared/types';
+import type { CopilotProvider, InsightsMessage, InsightsModel, InsightsSession } from '../../shared/types';
 import { sendMessage, abortStream, abortAllStreams } from '../insights/chat-executor';
 import {
   listSessions,
@@ -36,14 +36,17 @@ export function registerInsightsHandlers(
 
   ipcMain.handle(
     IPC_CHANNELS.INSIGHTS_CREATE_SESSION,
-    async (_event, model: InsightsModel, projectPath?: string) => {
+    async (_event, model: InsightsModel, projectPath?: string, provider?: CopilotProvider, copilotModel?: string) => {
       try {
+        console.log('[insights-handler] createSession — provider:', provider, 'model:', model, 'copilotModel:', copilotModel);
         const now = new Date().toISOString();
         const session: InsightsSession = {
           id: uuidv4(),
           title: 'New Chat',
           messages: [],
           model,
+          provider: provider || 'claude',
+          copilotModel: provider === 'copilot' ? copilotModel : undefined,
           projectPath,
           createdAt: now,
           updatedAt: now,
@@ -77,13 +80,16 @@ export function registerInsightsHandlers(
 
   ipcMain.handle(
     IPC_CHANNELS.INSIGHTS_SEND_MESSAGE,
-    async (_event, sessionId: string, content: string, model?: InsightsModel, projectPath?: string) => {
+    async (_event, sessionId: string, content: string, model?: InsightsModel, projectPath?: string, copilotModel?: string) => {
       try {
         let session = await getSession(sessionId);
         if (!session) return { success: false, error: 'Session not found' };
 
+        console.log('[insights-handler] sendMessage — sessionId:', sessionId, 'session.provider:', session.provider, 'model:', model, 'copilotModel:', copilotModel, 'projectPath:', projectPath);
+
         // Update model if changed
         if (model) session.model = model;
+        if (copilotModel) session.copilotModel = copilotModel;
 
         // Update project path if changed
         if (projectPath !== undefined) session.projectPath = projectPath || undefined;
@@ -105,14 +111,16 @@ export function registerInsightsHandlers(
         session.updatedAt = new Date().toISOString();
         await saveSession(session);
 
-        // Send to Claude and get response
+        // Send to AI provider and get response
         const responseText = await sendMessage(
           sessionId,
-          session.messages.slice(0, -1), // history without current message
+          session.messages.slice(0, -1),
           content,
           session.model,
           session.projectPath,
           getWindow,
+          session.provider,
+          session.copilotModel,
         );
 
         // Reload session (may have been modified), add assistant message

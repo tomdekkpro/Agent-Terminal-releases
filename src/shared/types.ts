@@ -1,4 +1,5 @@
 export type WindowsShellType = 'cmd' | 'powershell' | 'bash';
+export type CopilotProvider = 'claude' | 'copilot';
 
 export interface TerminalCreateOptions {
   id: string;
@@ -50,6 +51,9 @@ export interface AppSettings {
   theme: 'dark' | 'light';
   // General
   autoUpdate: boolean;
+  // Copilot
+  defaultCopilotProvider: CopilotProvider;
+  defaultCopilotModel: string;
 }
 
 // Usage Monitor
@@ -100,6 +104,8 @@ export interface InsightsSession {
   title: string;
   messages: InsightsMessage[];
   model: InsightsModel;
+  provider?: CopilotProvider;
+  copilotModel?: string;
   projectPath?: string;
   createdAt: string;
   updatedAt: string;
@@ -110,6 +116,7 @@ export interface InsightsSessionMeta {
   title: string;
   messageCount: number;
   model: InsightsModel;
+  provider?: CopilotProvider;
   projectPath?: string;
   createdAt: string;
   updatedAt: string;
@@ -138,4 +145,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   maxTerminals: 12,
   theme: 'dark',
   autoUpdate: true,
+  defaultCopilotProvider: 'claude',
+  defaultCopilotModel: 'claude-sonnet-4.5',
 };

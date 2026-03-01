@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type {
+  CopilotProvider,
   InsightsModel,
   InsightsSession,
   InsightsSessionMeta,
@@ -14,18 +15,20 @@ interface InsightsState {
   sidebarOpen: boolean;
   error: string | null;
   selectedProjectPath: string | null;
+  selectedProvider: CopilotProvider;
 
   loadSessions: () => Promise<void>;
   selectSession: (id: string) => Promise<void>;
-  createSession: (model: InsightsModel, projectPath?: string) => Promise<InsightsSession | null>;
+  createSession: (model: InsightsModel, projectPath?: string, provider?: CopilotProvider, copilotModel?: string) => Promise<InsightsSession | null>;
   deleteSession: (id: string) => Promise<void>;
   renameSession: (id: string, title: string) => Promise<void>;
-  sendMessage: (content: string, model?: InsightsModel) => Promise<void>;
+  sendMessage: (content: string, model?: InsightsModel, copilotModel?: string) => Promise<void>;
   abortStream: () => void;
   toggleSidebar: () => void;
   handleStreamEvent: (event: InsightsStreamEvent) => void;
   clearError: () => void;
   setSelectedProjectPath: (path: string | null) => void;
+  setSelectedProvider: (provider: CopilotProvider) => void;
 }
 
 export const useInsightsStore = create<InsightsState>((set, get) => ({
@@ -36,6 +39,7 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
   sidebarOpen: true,
   error: null,
   selectedProjectPath: null,
+  selectedProvider: 'claude',
 
   loadSessions: async () => {
     try {
@@ -52,11 +56,13 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
     try {
       const result = await window.electronAPI.insightsGetSession(id);
       if (result.success) {
+        console.log('[insights] selectSession:', id, 'provider:', result.data.provider, 'copilotModel:', result.data.copilotModel);
         set({
           activeSession: result.data,
           streamingText: '',
           error: null,
           selectedProjectPath: result.data.projectPath ?? null,
+          selectedProvider: result.data.provider || 'claude',
         });
       }
     } catch (err) {
@@ -64,11 +70,18 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
     }
   },
 
-  createSession: async (model: InsightsModel, projectPath?: string) => {
+  createSession: async (model: InsightsModel, projectPath?: string, provider?: CopilotProvider, copilotModel?: string) => {
     try {
-      const result = await window.electronAPI.insightsCreateSession(model, projectPath);
+      console.log('[insights] createSession called with provider:', provider, 'copilotModel:', copilotModel);
+      const result = await window.electronAPI.insightsCreateSession(model, projectPath, provider, copilotModel);
       if (result.success) {
-        set({ activeSession: result.data, streamingText: '', error: null });
+        console.log('[insights] createSession result provider:', result.data.provider);
+        set({
+          activeSession: result.data,
+          streamingText: '',
+          error: null,
+          selectedProvider: result.data.provider || 'claude',
+        });
         await get().loadSessions();
         return result.data;
       }
@@ -94,7 +107,6 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
   renameSession: async (id: string, title: string) => {
     try {
       await window.electronAPI.insightsRenameSession(id, title);
-      // Update locally
       const { activeSession } = get();
       if (activeSession?.id === id) {
         set({ activeSession: { ...activeSession, title } });
@@ -105,11 +117,11 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
     }
   },
 
-  sendMessage: async (content: string, model?: InsightsModel) => {
+  sendMessage: async (content: string, model?: InsightsModel, copilotModel?: string) => {
     const { activeSession, selectedProjectPath } = get();
     if (!activeSession) return;
+    console.log('[insights] store.sendMessage — session.provider:', activeSession.provider, 'model:', model, 'copilotModel:', copilotModel, 'projectPath:', selectedProjectPath);
 
-    // Optimistically add user message to UI immediately
     const optimisticMsg = {
       id: `temp-${Date.now()}`,
       role: 'user' as const,
@@ -132,6 +144,7 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
         content,
         model,
         selectedProjectPath ?? undefined,
+        copilotModel,
       );
       if (result.success) {
         set({ activeSession: result.data, isStreaming: false, streamingText: '' });
@@ -166,10 +179,14 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
     } else if (event.type === 'error') {
       set({ error: event.error || 'Stream error', isStreaming: false });
     }
-    // 'done' is handled by sendMessage resolving
   },
 
   clearError: () => set({ error: null }),
 
   setSelectedProjectPath: (path: string | null) => set({ selectedProjectPath: path }),
+
+  setSelectedProvider: (provider: CopilotProvider) => {
+    console.log('[insights] setSelectedProvider:', provider, new Error().stack?.split('\n')[2]?.trim());
+    set({ selectedProvider: provider });
+  },
 }));

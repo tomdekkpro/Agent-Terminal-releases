@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Trash2, MessageSquare, FolderOpen } from 'lucide-react';
+import { Plus, Trash2, MessageSquare, FolderOpen, GitBranch, Sparkles } from 'lucide-react';
 import type { InsightsSessionMeta } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
 
@@ -111,6 +111,17 @@ export function SessionSidebar({
                 >
                   <p className="text-sm text-[var(--text-primary)] truncate">{s.title}</p>
                   <div className="flex items-center gap-2 mt-0.5">
+                    {s.provider === 'copilot' ? (
+                      <span className="flex items-center gap-0.5 text-[10px] text-emerald-400">
+                        <GitBranch className="w-2.5 h-2.5" />
+                        Copilot
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-0.5 text-[10px] text-purple-400">
+                        <Sparkles className="w-2.5 h-2.5" />
+                        Claude
+                      </span>
+                    )}
                     <span className="flex items-center gap-0.5 text-[10px] text-[var(--text-muted)]">
                       <MessageSquare className="w-2.5 h-2.5" />
                       {s.messageCount}
@@ -118,7 +129,7 @@ export function SessionSidebar({
                     <span className="text-[10px] text-[var(--text-muted)]">{formatDate(s.updatedAt)}</span>
                     {folderName(s.projectPath) && (
                       <span className="flex items-center gap-0.5 text-[10px] text-[var(--text-muted)] truncate">
-                        <FolderOpen className="w-2.5 h-2.5 flex-shrink-0" />
+                        <FolderOpen className="w-2.5 h-2.5 shrink-0" />
                         {folderName(s.projectPath)}
                       </span>
                     )}
@@ -129,7 +140,7 @@ export function SessionSidebar({
                     e.stopPropagation();
                     onDelete(s.id);
                   }}
-                  className="w-5 h-5 rounded flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--error)] opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-0.5"
+                  className="w-5 h-5 rounded flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--error)] opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5"
                   title="Delete"
                 >
                   <Trash2 className="w-3 h-3" />

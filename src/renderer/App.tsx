@@ -72,6 +72,8 @@ export default function App() {
 
   const restoreTerminals = useCallback(async () => {
     const restored = await restoreState();
+    // Only one Copilot terminal can auto-resume (--continue grabs the most recent session)
+    let copilotResumed = false;
     // Create PTYs for each restored terminal
     for (const terminal of restored) {
       try {
@@ -81,11 +83,21 @@ export default function App() {
           cols: 80,
           rows: 24,
         });
-        // Resume Claude session if it was active when app closed
         if (terminal.isClaudeMode) {
-          // Prefer claudeCwd (the dir Claude was actually running in) over the shell's cwd
-          const resumeCwd = terminal.claudeCwd || terminal.cwd;
-          await window.electronAPI.resumeClaude(terminal.id, terminal.claudeSessionId, resumeCwd);
+          if (terminal.copilotProvider === 'copilot') {
+            if (!copilotResumed) {
+              // Resume most recent Copilot session with --continue
+              await window.electronAPI.resumeCopilot(terminal.id, terminal.cwd);
+              copilotResumed = true;
+            } else {
+              // Additional Copilot terminals reset — user can start/resume manually
+              useTerminalStore.getState().setClaudeMode(terminal.id, false);
+            }
+          } else {
+            // Resume Claude session (each has its own session ID)
+            const resumeCwd = terminal.claudeCwd || terminal.cwd;
+            await window.electronAPI.resumeClaude(terminal.id, terminal.claudeSessionId, resumeCwd);
+          }
         }
       } catch {
         // Terminal creation failed — mark as exited

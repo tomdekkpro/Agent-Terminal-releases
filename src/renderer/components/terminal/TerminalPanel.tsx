@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Bot, X, ExternalLink, GitBranch, GitMerge, Play, Square, Clock, Smartphone, Copy, Check, Eraser } from 'lucide-react';
+import { Bot, X, ExternalLink, GitBranch, GitMerge, Play, Square, Clock, Smartphone, Copy, Check, Eraser, ChevronDown } from 'lucide-react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import QRCode from 'qrcode';
 import { registerOutputCallback, unregisterOutputCallback, getAndClearSavedBuffer, useTerminalStore, type Terminal } from '../../stores/terminal-store';
+import type { CopilotProvider } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
 
 /** Format milliseconds to HH:MM:SS */
@@ -23,6 +24,8 @@ interface TerminalPanelProps {
   isSplit?: boolean;
   onInvokeClaude: () => void;
   onInvokeClaudeYolo: () => void;
+  onInvokeCopilot: () => void;
+  onProviderChange: (provider: CopilotProvider) => void;
   onMergeComplete?: () => void;
   onClose?: () => void;
   onFocus?: () => void;
@@ -53,12 +56,16 @@ const TERMINAL_THEME = {
   brightWhite: '#f8fafc',
 };
 
-export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onInvokeClaudeYolo, onMergeComplete, onClose, onFocus }: TerminalPanelProps) {
+export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onInvokeClaudeYolo, onInvokeCopilot, onProviderChange, onMergeComplete, onClose, onFocus }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const readyRef = useRef(false);
   const bufferRef = useRef<string[]>([]);
+
+  // Provider dropdown
+  const [showProviderMenu, setShowProviderMenu] = useState(false);
+  const providerMenuRef = useRef<HTMLDivElement>(null);
 
   const initObserverRef = useRef<ResizeObserver | null>(null);
 
@@ -112,6 +119,18 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const updateTerminal = useTerminalStore((s) => s.updateTerminal);
+
+  // Close provider dropdown on outside click
+  useEffect(() => {
+    if (!showProviderMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (providerMenuRef.current && !providerMenuRef.current.contains(e.target as Node)) {
+        setShowProviderMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showProviderMenu]);
 
   /** Safe fit — xterm can throw if renderer isn't fully ready */
   const safeFit = () => {
@@ -472,25 +491,76 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
           )}
           {!terminal.isClaudeMode && (
             <>
+              {/* Provider dropdown */}
+              <div className="relative" ref={providerMenuRef}>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowProviderMenu(!showProviderMenu); }}
+                  className="flex items-center gap-1 px-2 py-1 rounded-md text-xs bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/80 transition-colors"
+                  title="Select AI provider"
+                >
+                  {terminal.copilotProvider === 'claude' ? (
+                    <><Bot className="w-3 h-3" />{!isSplit && 'Claude'}</>
+                  ) : (
+                    <><GitBranch className="w-3 h-3" />{!isSplit && 'Copilot'}</>
+                  )}
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+                {showProviderMenu && (
+                  <div className="absolute right-0 top-full mt-1 z-50 w-40 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-2xl overflow-hidden">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onProviderChange('claude'); setShowProviderMenu(false); }}
+                      className={cn(
+                        'w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[var(--bg-tertiary)] transition-colors',
+                        terminal.copilotProvider === 'claude' ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'
+                      )}
+                    >
+                      <Bot className="w-3.5 h-3.5" />
+                      Claude Code
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onProviderChange('copilot'); setShowProviderMenu(false); }}
+                      className={cn(
+                        'w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[var(--bg-tertiary)] transition-colors',
+                        terminal.copilotProvider === 'copilot' ? 'text-emerald-400' : 'text-[var(--text-secondary)]'
+                      )}
+                    >
+                      <GitBranch className="w-3.5 h-3.5" />
+                      GitHub Copilot
+                    </button>
+                  </div>
+                )}
+              </div>
+              {/* Start button */}
               <button
-                onClick={(e) => { e.stopPropagation(); onInvokeClaude(); }}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-[var(--accent)]/20 text-[var(--accent)] hover:bg-[var(--accent)]/30 transition-colors"
-                title="Start Claude Code"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  terminal.copilotProvider === 'copilot' ? onInvokeCopilot() : onInvokeClaude();
+                }}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors',
+                  terminal.copilotProvider === 'copilot'
+                    ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'
+                    : 'bg-[var(--accent)]/20 text-[var(--accent)] hover:bg-[var(--accent)]/30'
+                )}
+                title={terminal.copilotProvider === 'copilot' ? 'Start GitHub Copilot' : 'Start Claude Code'}
               >
-                <Bot className="w-3.5 h-3.5" />
-                {!isSplit && 'Claude'}
+                {terminal.copilotProvider === 'copilot' ? <GitBranch className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
+                {!isSplit && 'Start'}
               </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); onInvokeClaudeYolo(); }}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors"
-                title="Start Claude Code (skip permissions)"
-              >
-                <Bot className="w-3.5 h-3.5" />
-                {!isSplit && 'YOLO'}
-              </button>
+              {/* YOLO button — Claude only */}
+              {terminal.copilotProvider === 'claude' && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onInvokeClaudeYolo(); }}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors"
+                  title="Start Claude Code (skip permissions)"
+                >
+                  <Bot className="w-3.5 h-3.5" />
+                  {!isSplit && 'YOLO'}
+                </button>
+              )}
             </>
           )}
-          {terminal.isClaudeMode && (
+          {terminal.isClaudeMode && terminal.copilotProvider !== 'copilot' && (
             <>
               <button
                 onClick={(e) => {
@@ -536,6 +606,26 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-[var(--success)]/20 text-[var(--success)]">
                 <Bot className={cn('w-3.5 h-3.5', terminal.isClaudeBusy && 'animate-pulse')} />
                 {!isSplit && (terminal.isClaudeBusy ? 'Thinking...' : 'Claude Active')}
+              </div>
+            </>
+          )}
+          {terminal.isClaudeMode && terminal.copilotProvider === 'copilot' && (
+            <>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Ctrl+U clears the current input line
+                  window.electronAPI.sendTerminalInput(terminal.id, '\x15');
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
+                title="Clear input text"
+              >
+                <Eraser className="w-3.5 h-3.5" />
+                {!isSplit && 'Clear'}
+              </button>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-emerald-500/20 text-emerald-400">
+                <GitBranch className="w-3.5 h-3.5" />
+                {!isSplit && 'Copilot Active'}
               </div>
             </>
           )}

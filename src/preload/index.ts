@@ -7,7 +7,9 @@ const electronAPI = {
   destroyTerminal: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_DESTROY, id),
   sendTerminalInput: (id: string, data: string) => ipcRenderer.send(IPC_CHANNELS.TERMINAL_WRITE, id, data),
   resizeTerminal: (id: string, cols: number, rows: number) => ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESIZE, id, cols, rows),
-  invokeClaude: (id: string, cwd?: string, skipPermissions?: boolean) => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_INVOKE_CLAUDE, id, cwd, skipPermissions),
+  invokeClaude: (id: string, cwd?: string, skipPermissions?: boolean, model?: string) => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_INVOKE_CLAUDE, id, cwd, skipPermissions, model),
+  invokeCopilot: (id: string, cwd?: string, model?: string) => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_INVOKE_COPILOT, id, cwd, model),
+  resumeCopilot: (id: string, cwd?: string) => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_RESUME_COPILOT, id, cwd),
   resumeClaude: (id: string, sessionId?: string, cwd?: string) => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_RESUME_CLAUDE, id, sessionId, cwd),
   saveTerminalState: (state: any) => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_STATE_SAVE, state),
   saveTerminalStateSync: (state: any) => ipcRenderer.sendSync(IPC_CHANNELS.TERMINAL_STATE_SAVE_SYNC, state),
@@ -90,13 +92,13 @@ const electronAPI = {
   // Insights
   insightsListSessions: () => ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_LIST_SESSIONS),
   insightsGetSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_GET_SESSION, id),
-  insightsCreateSession: (model: string, projectPath?: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_CREATE_SESSION, model, projectPath),
+  insightsCreateSession: (model: string, projectPath?: string, provider?: string, copilotModel?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_CREATE_SESSION, model, projectPath, provider, copilotModel),
   insightsDeleteSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_DELETE_SESSION, id),
   insightsRenameSession: (id: string, title: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_RENAME_SESSION, id, title),
-  insightsSendMessage: (sessionId: string, content: string, model?: string, projectPath?: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_SEND_MESSAGE, sessionId, content, model, projectPath),
+  insightsSendMessage: (sessionId: string, content: string, model?: string, projectPath?: string, copilotModel?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_SEND_MESSAGE, sessionId, content, model, projectPath, copilotModel),
   insightsAbortStream: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_ABORT_STREAM, sessionId),
   onInsightsStreamEvent: (callback: (event: any) => void) => {

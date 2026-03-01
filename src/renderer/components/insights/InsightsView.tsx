@@ -4,10 +4,11 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useInsightsStore } from '../../stores/insights-store';
 import { useProjectStore } from '../../stores/project-store';
+import { useSettingsStore } from '../../stores/settings-store';
 import { ChatMessage } from './ChatMessage';
 import { ModelSelector } from './ModelSelector';
 import { SessionSidebar } from './SessionSidebar';
-import type { InsightsModel, InsightsMessage } from '../../../shared/types';
+import type { CopilotProvider, InsightsModel, InsightsMessage } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
 
 const QUICK_PROMPTS = [
@@ -17,15 +18,15 @@ const QUICK_PROMPTS = [
   { label: 'Optimize performance', prompt: 'Analyze this codebase for performance bottlenecks and suggest specific optimizations. Focus on areas that would have the biggest impact.' },
 ];
 
-function StreamingMessage({ text }: { text: string }) {
+function StreamingMessage({ text, providerLabel }: { text: string; providerLabel: string }) {
   return (
     <div className="flex gap-3 px-4 py-3 bg-[var(--bg-secondary)]/30">
-      <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 bg-purple-500/20 text-purple-400">
+      <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 bg-purple-500/20 text-purple-400">
         <Sparkles className="w-4 h-4" />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-xs font-medium text-[var(--text-secondary)]">Claude</span>
+          <span className="text-xs font-medium text-[var(--text-secondary)]">{providerLabel}</span>
           <span className="flex items-center gap-1 text-[10px] text-[var(--accent)]">
             <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />
             {text ? 'writing...' : 'thinking...'}
@@ -56,6 +57,7 @@ export function InsightsView() {
     sidebarOpen,
     error,
     selectedProjectPath,
+    selectedProvider,
     loadSessions,
     selectSession,
     createSession,
@@ -67,15 +69,46 @@ export function InsightsView() {
     handleStreamEvent,
     clearError,
     setSelectedProjectPath,
+    setSelectedProvider,
   } = useInsightsStore();
 
   const projects = useProjectStore((s) => s.projects);
   const activeProjectId = useProjectStore((s) => s.activeProjectId);
+  const settingsProvider = useSettingsStore((s) => s.settings.defaultCopilotProvider);
+  const settingsCopilotModel = useSettingsStore((s) => s.settings.defaultCopilotModel);
 
   const [input, setInput] = useState('');
   const [model, setModel] = useState<InsightsModel>('sonnet');
+  const [copilotModel, setCopilotModel] = useState(settingsCopilotModel || 'claude-sonnet-4.5');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Sync provider from active session; on mount with no session, use settings default
+  const prevSessionIdRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const currentId = activeSession?.id ?? null;
+    console.log('[insights] provider sync effect — prevId:', prevSessionIdRef.current, 'currentId:', currentId, 'session.provider:', activeSession?.provider, 'settingsProvider:', settingsProvider);
+    if (prevSessionIdRef.current === undefined) {
+      // First mount — sync from session or fall back to settings
+      prevSessionIdRef.current = currentId;
+      if (activeSession?.provider) {
+        console.log('[insights] first mount: sync from session provider:', activeSession.provider);
+        setSelectedProvider(activeSession.provider);
+      } else if (!activeSession) {
+        console.log('[insights] first mount: no session, using settings:', settingsProvider);
+        setSelectedProvider(settingsProvider);
+      }
+    } else if (currentId !== prevSessionIdRef.current) {
+      // Session changed — sync provider from new session
+      prevSessionIdRef.current = currentId;
+      if (activeSession?.provider) {
+        console.log('[insights] session changed: sync provider:', activeSession.provider);
+        setSelectedProvider(activeSession.provider);
+      } else {
+        console.log('[insights] session changed: no provider on session, keeping current');
+      }
+    }
+  }, [activeSession, settingsProvider, setSelectedProvider]);
 
   // Initialize selectedProjectPath from active project on first mount
   useEffect(() => {
@@ -102,7 +135,10 @@ export function InsightsView() {
     if (activeSession?.model) {
       setModel(activeSession.model);
     }
-  }, [activeSession?.model]);
+    if (activeSession) {
+      setCopilotModel(activeSession.copilotModel || settingsCopilotModel || 'claude-sonnet-4.5');
+    }
+  }, [activeSession?.model, activeSession?.copilotModel, settingsCopilotModel]);
 
   const handleSend = useCallback(
     async (content: string) => {
@@ -110,17 +146,34 @@ export function InsightsView() {
       if (!text || isStreaming) return;
       setInput('');
 
+      // Read provider from store at execution time to avoid stale closure
+      const currentProvider = useInsightsStore.getState().selectedProvider;
+      console.log('[insights] handleSend: currentProvider:', currentProvider, 'activeSession:', !!activeSession);
+
       if (!activeSession) {
-        const session = await createSession(model, selectedProjectPath ?? undefined);
+        const session = await createSession(
+          model,
+          selectedProjectPath ?? undefined,
+          currentProvider,
+          currentProvider === 'copilot' ? copilotModel : undefined,
+        );
         if (!session) return;
-        // createSession sets activeSession — now sendMessage can pick it up
-        useInsightsStore.getState().sendMessage(text, model);
+        const storeState = useInsightsStore.getState();
+        storeState.sendMessage(
+          text,
+          model,
+          storeState.selectedProvider === 'copilot' ? copilotModel : undefined,
+        );
         return;
       }
 
-      sendMessage(text, model);
+      sendMessage(
+        text,
+        model,
+        currentProvider === 'copilot' ? copilotModel : undefined,
+      );
     },
-    [activeSession, isStreaming, model, selectedProjectPath, createSession, sendMessage],
+    [activeSession, isStreaming, model, copilotModel, selectedProjectPath, createSession, sendMessage],
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -140,10 +193,25 @@ export function InsightsView() {
   }, [input]);
 
   const handleNewChat = async () => {
-    await createSession(model, selectedProjectPath ?? undefined);
+    const currentProvider = useInsightsStore.getState().selectedProvider;
+    await createSession(
+      model,
+      selectedProjectPath ?? undefined,
+      currentProvider,
+      currentProvider === 'copilot' ? copilotModel : undefined,
+    );
+  };
+
+  const handleProviderChange = (provider: CopilotProvider) => {
+    setSelectedProvider(provider);
   };
 
   const messages: InsightsMessage[] = activeSession?.messages ?? [];
+
+  // Determine if provider is locked (active session has messages)
+  const providerLocked = !!activeSession && messages.length > 0;
+
+  const providerLabel = selectedProvider === 'copilot' ? 'GitHub Copilot' : 'Claude';
 
   return (
     <div className="flex h-full">
@@ -195,15 +263,34 @@ export function InsightsView() {
             <ChevronDown className="w-3 h-3 absolute right-1 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none" />
           </div>
 
-          <div className="ml-auto">
-            <ModelSelector value={model} onChange={setModel} disabled={isStreaming} />
+          <div className="ml-auto flex items-center gap-2">
+            {/* Provider picker */}
+            <select
+              value={selectedProvider}
+              onChange={(e) => handleProviderChange(e.target.value as CopilotProvider)}
+              disabled={isStreaming || providerLocked}
+              className="text-[11px] bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border)] rounded-md px-2 py-1 outline-none focus:border-[var(--accent)] disabled:opacity-50 cursor-pointer"
+              title={providerLocked ? 'Provider is locked for this session' : 'Select AI provider'}
+            >
+              <option value="claude">Claude Code</option>
+              <option value="copilot">GitHub Copilot</option>
+            </select>
+            {/* Model selector */}
+            <ModelSelector
+              provider={selectedProvider}
+              value={model}
+              copilotValue={copilotModel}
+              onChange={setModel}
+              onCopilotChange={setCopilotModel}
+              disabled={isStreaming}
+            />
           </div>
         </div>
 
         {/* Error banner */}
         {error && (
           <div className="flex items-center gap-2 px-4 py-2 bg-[var(--error)]/10 border-b border-[var(--error)]/20">
-            <AlertCircle className="w-4 h-4 text-[var(--error)] flex-shrink-0" />
+            <AlertCircle className="w-4 h-4 text-[var(--error)] shrink-0" />
             <span className="text-xs text-[var(--error)] flex-1">{error}</span>
             <button onClick={clearError} className="text-[var(--error)] hover:text-[var(--error)]/80">
               <X className="w-3 h-3" />
@@ -221,7 +308,7 @@ export function InsightsView() {
                 </div>
                 <h2 className="text-lg font-medium text-[var(--text-primary)]">Start a conversation</h2>
                 <p className="text-sm text-[var(--text-muted)] text-center max-w-md">
-                  Ask questions about your code, get suggestions, or explore ideas with Claude.
+                  Ask questions about your code, get suggestions, or explore ideas with {selectedProvider === 'copilot' ? 'GitHub Copilot' : 'Claude'}.
                 </p>
               </div>
 
@@ -244,9 +331,9 @@ export function InsightsView() {
           ) : (
             <div>
               {messages.map((msg) => (
-                <ChatMessage key={msg.id} message={msg} />
+                <ChatMessage key={msg.id} message={msg} providerLabel={providerLabel} />
               ))}
-              {isStreaming && <StreamingMessage text={streamingText} />}
+              {isStreaming && <StreamingMessage text={streamingText} providerLabel={providerLabel} />}
               <div ref={messagesEndRef} />
             </div>
           )}
@@ -273,7 +360,7 @@ export function InsightsView() {
             {isStreaming ? (
               <button
                 onClick={abortStream}
-                className="w-9 h-9 rounded-lg bg-[var(--error)]/20 text-[var(--error)] flex items-center justify-center hover:bg-[var(--error)]/30 transition-colors flex-shrink-0"
+                className="w-9 h-9 rounded-lg bg-[var(--error)]/20 text-[var(--error)] flex items-center justify-center hover:bg-[var(--error)]/30 transition-colors shrink-0"
                 title="Stop"
               >
                 <Square className="w-4 h-4" />
@@ -283,7 +370,7 @@ export function InsightsView() {
                 onClick={() => handleSend(input)}
                 disabled={!input.trim()}
                 className={cn(
-                  'w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors',
+                  'w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-colors',
                   input.trim()
                     ? 'bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)]'
                     : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]',

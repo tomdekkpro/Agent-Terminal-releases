@@ -7,6 +7,8 @@ export const IPC_CHANNELS = {
   TERMINAL_OUTPUT: 'terminal:output',
   TERMINAL_EXIT: 'terminal:exit',
   TERMINAL_INVOKE_CLAUDE: 'terminal:invoke-claude',
+  TERMINAL_INVOKE_COPILOT: 'terminal:invoke-copilot',
+  TERMINAL_RESUME_COPILOT: 'terminal:resume-copilot',
   TERMINAL_RESUME_CLAUDE: 'terminal:resume-claude',
   TERMINAL_CLAUDE_SESSION: 'terminal:claude-session',
   TERMINAL_CLAUDE_BUSY: 'terminal:claude-busy',

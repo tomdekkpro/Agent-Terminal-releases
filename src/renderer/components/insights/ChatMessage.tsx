@@ -7,6 +7,7 @@ import type { InsightsMessage } from '../../../shared/types';
 
 interface ChatMessageProps {
   message: InsightsMessage;
+  providerLabel?: string;
 }
 
 function CodeBlock({ className, children }: { className?: string; children: React.ReactNode }) {
@@ -40,7 +41,7 @@ function CodeBlock({ className, children }: { className?: string; children: Reac
   );
 }
 
-export function ChatMessage({ message }: ChatMessageProps) {
+export function ChatMessage({ message, providerLabel }: ChatMessageProps) {
   const isUser = message.role === 'user';
 
   if (isUser) {
@@ -60,13 +61,13 @@ export function ChatMessage({ message }: ChatMessageProps) {
 
   return (
     <div className="flex gap-3 px-4 py-3">
-      <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 bg-purple-500/20 text-purple-400">
+      <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 bg-purple-500/20 text-purple-400">
         <Sparkles className="w-4 h-4" />
       </div>
 
       <div className="flex-1 min-w-0 max-w-[85%]">
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-xs font-medium text-[var(--text-secondary)]">Claude</span>
+          <span className="text-xs font-medium text-[var(--text-secondary)]">{providerLabel || 'Claude'}</span>
           {message.model && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
               {message.model}

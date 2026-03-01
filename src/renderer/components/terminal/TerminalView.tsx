@@ -666,8 +666,14 @@ export function TerminalView({ projectId }: TerminalViewProps) {
 
       if (task) {
         setTimeout(async () => {
-          await window.electronAPI.invokeClaude(terminal.id, cwd);
-          useTerminalStore.getState().setClaudeMode(terminal.id, true);
+          const claudeModel = useSettingsStore.getState().settings.defaultModel;
+          const invokeResult = await window.electronAPI.invokeClaude(terminal.id, cwd, undefined, claudeModel || undefined);
+          if (invokeResult.success) {
+            useTerminalStore.getState().setClaudeMode(terminal.id, true);
+          } else {
+            setCliError(invokeResult.error || 'Failed to start Claude Code');
+            setTimeout(() => setCliError(null), 8000);
+          }
           setTimeout(() => {
             const taskContext = buildTaskPrompt(task);
             window.electronAPI.sendTerminalInput(terminal.id, taskContext);
@@ -771,10 +777,33 @@ export function TerminalView({ projectId }: TerminalViewProps) {
     [allTerminals, removeTerminal, syncTimerBeforeClose]
   );
 
+  const [cliError, setCliError] = useState<string | null>(null);
+
   const handleInvokeClaude = useCallback(async (id: string, skipPermissions?: boolean) => {
-    await window.electronAPI.invokeClaude(id, activeProject?.path, skipPermissions);
-    useTerminalStore.getState().setClaudeMode(id, true);
+    const claudeModel = useSettingsStore.getState().settings.defaultModel;
+    const result = await window.electronAPI.invokeClaude(id, activeProject?.path, skipPermissions, claudeModel || undefined);
+    if (result.success) {
+      useTerminalStore.getState().setClaudeMode(id, true);
+    } else {
+      setCliError(result.error || 'Failed to start Claude Code');
+      setTimeout(() => setCliError(null), 8000);
+    }
   }, [activeProject]);
+
+  const handleInvokeCopilot = useCallback(async (id: string) => {
+    const copilotModel = useSettingsStore.getState().settings.defaultCopilotModel;
+    const result = await window.electronAPI.invokeCopilot(id, activeProject?.path, copilotModel || undefined);
+    if (result.success) {
+      useTerminalStore.getState().setClaudeMode(id, true);
+    } else {
+      setCliError(result.error || 'Failed to start GitHub Copilot');
+      setTimeout(() => setCliError(null), 8000);
+    }
+  }, [activeProject]);
+
+  const handleProviderChange = useCallback((id: string, provider: import('../../../shared/types').CopilotProvider) => {
+    useTerminalStore.getState().setCopilotProvider(id, provider);
+  }, []);
 
   const [mergeStatus, setMergeStatus] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [mergeTarget, setMergeTarget] = useState<{
@@ -1067,12 +1096,16 @@ export function TerminalView({ projectId }: TerminalViewProps) {
               {isGroupSplit ? (
                 <Columns2 className="w-3.5 h-3.5 shrink-0" />
               ) : hasClaudeActive ? (
-                <Bot
-                  className={cn(
-                    'w-3.5 h-3.5 shrink-0',
-                    hasClaudeBusy && 'animate-pulse text-[var(--accent)]'
-                  )}
-                />
+                groupTerminals.some((t) => t.isClaudeMode && t.copilotProvider === 'copilot') ? (
+                  <GitBranch className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                ) : (
+                  <Bot
+                    className={cn(
+                      'w-3.5 h-3.5 shrink-0',
+                      hasClaudeBusy && 'animate-pulse text-[var(--accent)]'
+                    )}
+                  />
+                )
               ) : (
                 <TerminalIcon className="w-3.5 h-3.5 shrink-0" />
               )}
@@ -1178,6 +1211,16 @@ export function TerminalView({ projectId }: TerminalViewProps) {
         )}
       </div>
 
+      {/* CLI error notification */}
+      {cliError && (
+        <div className="px-4 py-2 text-xs flex items-center justify-between shrink-0 bg-red-500/20 text-red-400 border-b border-red-500/30">
+          <span>{cliError}</span>
+          <button onClick={() => setCliError(null)} className="hover:opacity-70">
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+
       {/* Merge status notification */}
       {mergeStatus && (
         <div className={cn(
@@ -1259,6 +1302,8 @@ export function TerminalView({ projectId }: TerminalViewProps) {
                           isSplit={true}
                           onInvokeClaude={() => handleInvokeClaude(terminal.id)}
                           onInvokeClaudeYolo={() => handleInvokeClaude(terminal.id, true)}
+                          onInvokeCopilot={() => handleInvokeCopilot(terminal.id)}
+                          onProviderChange={(p) => handleProviderChange(terminal.id, p)}
                           onMergeComplete={() => handleMergeComplete(terminal)}
                           onClose={() => handleCloseTerminal(terminal.id)}
                           onFocus={() => setActiveTerminal(terminal.id)}
@@ -1275,6 +1320,8 @@ export function TerminalView({ projectId }: TerminalViewProps) {
                         isActive={isCurrentGroup}
                         onInvokeClaude={() => handleInvokeClaude(terminal.id)}
                         onInvokeClaudeYolo={() => handleInvokeClaude(terminal.id, true)}
+                        onInvokeCopilot={() => handleInvokeCopilot(terminal.id)}
+                        onProviderChange={(p) => handleProviderChange(terminal.id, p)}
                         onMergeComplete={() => handleMergeComplete(terminal)}
                       />
                     </div>
