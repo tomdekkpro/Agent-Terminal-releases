@@ -5,7 +5,7 @@
 <h1 align="center">Agent Terminal</h1>
 
 <p align="center">
-  AI-powered terminal with ClickUp integration, time tracking, and git worktree support.
+  AI-powered terminal with Insights chat, ClickUp integration, time tracking, and git worktree support.
 </p>
 
 <p align="center">
@@ -24,10 +24,14 @@
 ## Features
 
 - **Multi-project terminals** — Organize terminals by project with tabbed navigation and split panes
+- **Insights (AI Chat)** — Chat with Claude or GitHub Copilot from a dedicated view with session history and model selection
 - **ClickUp integration** — Pick tasks, create branches, track status, and post comments directly from the terminal
 - **Time tracking** — Start/stop timer per terminal, automatically synced to ClickUp
 - **Git worktree support** — Isolate task work in dedicated worktrees, auto-cleanup on completion
+- **Enhanced git feedback** — Fetch shows commits behind upstream, Pull displays detailed results with notification bar
 - **Task completion flow** — Create PR, push to remote, or merge locally when done
+- **Mobile remote control** — Control your terminal from your phone via QR code pairing
+- **Usage tracking** — Monitor API usage with a built-in usage indicator
 - **Auto-update** — Get notified and update to the latest version from GitHub Releases
 - **Terminal persistence** — Sessions restore automatically on restart
 - **Claude AI mode** — Invoke Claude directly in the terminal for AI-assisted development
@@ -50,10 +54,10 @@ Get the latest release for your platform:
 |--------|----------|
 | Terminals view | `Ctrl+T` |
 | ClickUp view | `Ctrl+K` |
+| Insights view | `Ctrl+I` |
 | Settings view | `Ctrl+S` |
 | New terminal | `Ctrl+N` |
 | Switch project 1–9 | `Ctrl+1` – `Ctrl+9` |
-| Invoke Claude | `Ctrl+Alt+I` |
 
 ## Installation
 
@@ -92,18 +96,25 @@ The app checks for updates automatically on startup. You can also check manually
 3. Test the connection
 4. Tasks will appear in the ClickUp view (`Ctrl+K`)
 
+### Insights (AI Chat)
+
+1. Open **Insights** (`Ctrl+I`)
+2. Select a provider — **Claude** (requires `claude` CLI) or **GitHub Copilot** (requires `gh copilot`)
+3. Choose a model (Opus, Sonnet, or Haiku for Claude)
+4. Start a conversation — sessions are saved and can be resumed from the sidebar
+
 ### Terminal
 
 Customize font family, font size, cursor style, scrollback buffer, and theme in Settings > Terminal.
 
 ## Tech Stack
 
-- **Electron 33** — Desktop framework
+- **Electron 40** — Desktop framework
 - **React 19** + **TypeScript 5** — UI
 - **Zustand 5** — State management
-- **xterm.js 5** — Terminal emulation
-- **Tailwind CSS 3** — Styling
-- **electron-vite 5** — Build tooling
+- **xterm.js 6** — Terminal emulation
+- **Tailwind CSS 4** — Styling
+- **Vite 7** + **electron-vite 5** — Build tooling
 - **electron-builder 26** — Packaging & distribution
 - **electron-updater 6** — Auto-updates
 
