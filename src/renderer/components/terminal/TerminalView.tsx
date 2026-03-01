@@ -565,10 +565,12 @@ export function TerminalView({ projectId }: TerminalViewProps) {
   const [currentBranch, setCurrentBranch] = useState<string>('');
   const [fetchStatus, setFetchStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [pullStatus, setPullStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [behindCount, setBehindCount] = useState<number>(0);
+  const [pullMessage, setPullMessage] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Fetch current branch for active project
   const refreshBranch = useCallback(async () => {
-    if (!activeProject?.path) { setCurrentBranch(''); return; }
+    if (!activeProject?.path) { setCurrentBranch(''); setBehindCount(0); return; }
     try {
       const result = await window.electronAPI.listBranches(activeProject.path);
       if (result.success && result.current) setCurrentBranch(result.current);
@@ -588,6 +590,9 @@ export function TerminalView({ projectId }: TerminalViewProps) {
     try {
       const result = await window.electronAPI.gitFetch(activeProject.path);
       setFetchStatus(result.success ? 'success' : 'error');
+      if (result.success && typeof result.behindCount === 'number') {
+        setBehindCount(result.behindCount);
+      }
       refreshBranch();
     } catch {
       setFetchStatus('error');
@@ -600,12 +605,26 @@ export function TerminalView({ projectId }: TerminalViewProps) {
     setPullStatus('loading');
     try {
       const result = await window.electronAPI.gitPull(activeProject.path);
-      setPullStatus(result.success ? 'success' : 'error');
+      if (result.success) {
+        setPullStatus('success');
+        setBehindCount(0);
+        if (result.alreadyUpToDate) {
+          setPullMessage({ message: 'Already up to date', type: 'success' });
+        } else {
+          const n = result.commitsPulled || 0;
+          setPullMessage({ message: `Pulled ${n} commit${n !== 1 ? 's' : ''}`, type: 'success' });
+        }
+      } else {
+        setPullStatus('error');
+        setPullMessage({ message: result.error || 'Pull failed', type: 'error' });
+      }
       refreshBranch();
     } catch {
       setPullStatus('error');
+      setPullMessage({ message: 'Pull failed', type: 'error' });
     }
     setTimeout(() => setPullStatus('idle'), 2000);
+    setTimeout(() => setPullMessage(null), 5000);
   }, [activeProject?.path, pullStatus, refreshBranch]);
 
   /** Setup a terminal with task info, optionally create worktree, create PTY, and optionally start Claude */
@@ -1032,7 +1051,7 @@ export function TerminalView({ projectId }: TerminalViewProps) {
               <button
                 onClick={handleGitFetch}
                 disabled={fetchStatus === 'loading'}
-                title="Fetch latest from remote"
+                title={behindCount > 0 ? `Fetch latest from remote (${behindCount} commit${behindCount !== 1 ? 's' : ''} behind)` : 'Fetch latest from remote'}
                 className={cn(
                   'flex items-center gap-1 px-2 h-7 rounded-md text-[11px] transition-all',
                   'hover:bg-[var(--bg-tertiary)] border border-transparent',
@@ -1044,6 +1063,11 @@ export function TerminalView({ projectId }: TerminalViewProps) {
               >
                 <RefreshCw className={cn('w-3 h-3', fetchStatus === 'loading' && 'animate-spin')} />
                 <span>Fetch</span>
+                {behindCount > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium leading-none bg-[var(--accent)] text-white">
+                    {behindCount}
+                  </span>
+                )}
               </button>
               <button
                 onClick={handleGitPull}
@@ -1231,6 +1255,21 @@ export function TerminalView({ projectId }: TerminalViewProps) {
         )}>
           <span>{mergeStatus.message}</span>
           <button onClick={() => setMergeStatus(null)} className="hover:opacity-70">
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+
+      {/* Pull status notification */}
+      {pullMessage && (
+        <div className={cn(
+          'px-4 py-2 text-xs flex items-center justify-between shrink-0',
+          pullMessage.type === 'success'
+            ? 'bg-emerald-500/20 text-emerald-400 border-b border-emerald-500/30'
+            : 'bg-red-500/20 text-red-400 border-b border-red-500/30'
+        )}>
+          <span>{pullMessage.message}</span>
+          <button onClick={() => setPullMessage(null)} className="hover:opacity-70">
             <X className="w-3 h-3" />
           </button>
         </div>

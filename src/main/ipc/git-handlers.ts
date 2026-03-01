@@ -278,8 +278,21 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
           timeout: 30000,
         });
 
-        debugLog('[Git] Fetched all remotes');
-        return { success: true };
+        let behindCount = 0;
+        try {
+          const count = execSync('git rev-list HEAD..@{u} --count', {
+            cwd,
+            encoding: 'utf-8',
+            stdio: 'pipe',
+            timeout: 5000,
+          }).trim();
+          behindCount = parseInt(count, 10) || 0;
+        } catch {
+          // No upstream configured — ignore
+        }
+
+        debugLog('[Git] Fetched all remotes, behind by', behindCount);
+        return { success: true, behindCount };
       } catch (error: any) {
         const msg = error.stderr?.toString() || error.message || '';
         debugError('[Git] fetch error:', msg);
@@ -296,6 +309,13 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
           return { success: false, error: 'Not a git repository' };
         }
 
+        const oldHead = execSync('git rev-parse HEAD', {
+          cwd,
+          encoding: 'utf-8',
+          stdio: 'pipe',
+          timeout: 5000,
+        }).trim();
+
         const output = execSync('git pull', {
           cwd,
           encoding: 'utf-8',
@@ -304,8 +324,24 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
         }).trim();
 
         const alreadyUpToDate = output.includes('Already up to date') || output.includes('up-to-date');
-        debugLog('[Git] Pull result:', output);
-        return { success: true, alreadyUpToDate, output };
+
+        let commitsPulled = 0;
+        if (!alreadyUpToDate) {
+          try {
+            const count = execSync(`git rev-list ${oldHead}..HEAD --count`, {
+              cwd,
+              encoding: 'utf-8',
+              stdio: 'pipe',
+              timeout: 5000,
+            }).trim();
+            commitsPulled = parseInt(count, 10) || 0;
+          } catch {
+            // ignore
+          }
+        }
+
+        debugLog('[Git] Pull result:', output, 'commits pulled:', commitsPulled);
+        return { success: true, alreadyUpToDate, output, commitsPulled };
       } catch (error: any) {
         const msg = error.stderr?.toString() || error.message || '';
         debugError('[Git] pull error:', msg);
