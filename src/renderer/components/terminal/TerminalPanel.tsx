@@ -3,9 +3,11 @@ import { Bot, X, ExternalLink, GitBranch, GitMerge, Play, Square, Clock, Smartph
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { WebglAddon } from '@xterm/addon-webgl';
 import QRCode from 'qrcode';
 import { registerOutputCallback, unregisterOutputCallback, getAndClearSavedBuffer, useTerminalStore, type Terminal } from '../../stores/terminal-store';
-import type { CopilotProvider } from '../../../shared/types';
+import { useSettingsStore } from '../../stores/settings-store';
+import type { AgentProviderId, AgentProviderMeta } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
 
 /** Format milliseconds to HH:MM:SS */
@@ -22,10 +24,9 @@ interface TerminalPanelProps {
   terminal: Terminal;
   isActive: boolean;
   isSplit?: boolean;
-  onInvokeClaude: () => void;
-  onInvokeClaudeYolo: () => void;
-  onInvokeCopilot: () => void;
-  onProviderChange: (provider: CopilotProvider) => void;
+  agentProviders: AgentProviderMeta[];
+  onInvokeAgent: (skipPermissions?: boolean) => void;
+  onProviderChange: (provider: AgentProviderId) => void;
   onMergeComplete?: () => void;
   onClose?: () => void;
   onFocus?: () => void;
@@ -56,12 +57,16 @@ const TERMINAL_THEME = {
   brightWhite: '#f8fafc',
 };
 
-export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onInvokeClaudeYolo, onInvokeCopilot, onProviderChange, onMergeComplete, onClose, onFocus }: TerminalPanelProps) {
+export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onInvokeAgent, onProviderChange, onMergeComplete, onClose, onFocus }: TerminalPanelProps) {
+  const currentProvider = agentProviders.find((p) => p.id === terminal.agentProvider) || agentProviders[0];
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const webglAddonRef = useRef<WebglAddon | null>(null);
   const readyRef = useRef(false);
   const bufferRef = useRef<string[]>([]);
+
+  const gpuAcceleration = useSettingsStore((s) => s.settings.terminalGpuAcceleration);
 
   // Provider dropdown
   const [showProviderMenu, setShowProviderMenu] = useState(false);
@@ -98,12 +103,12 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
     if (isTimerRunning) {
       const result = stopTimer(terminal.id);
       // Sync to ClickUp
-      if (result && result.startedAt && terminal.clickUpTask) {
+      if (result && result.startedAt && terminal.task) {
         const duration = result.elapsed;
         if (duration > 0) {
           try {
-            await window.electronAPI.postClickUpTimeEntry(
-              terminal.clickUpTask.id,
+            await window.electronAPI.postTaskTimeEntry(
+              terminal.task.id,
               result.startedAt,
               duration,
             );
@@ -113,7 +118,7 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
     } else {
       startTimer(terminal.id);
     }
-  }, [isTimerRunning, terminal.id, terminal.clickUpTask, startTimer, stopTimer]);
+  }, [isTimerRunning, terminal.id, terminal.task, startTimer, stopTimer]);
 
   // Inline title rename state
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -246,6 +251,23 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
           xtermRef.current.focus();
           readyRef.current = true;
 
+          // Load WebGL renderer if GPU acceleration is enabled
+          const gpuEnabled = useSettingsStore.getState().settings.terminalGpuAcceleration;
+          if (gpuEnabled) {
+            try {
+              const addon = new WebglAddon();
+              addon.onContextLoss(() => {
+                // WebGL context lost — dispose and fall back to DOM renderer
+                addon.dispose();
+                webglAddonRef.current = null;
+              });
+              xtermRef.current!.loadAddon(addon);
+              webglAddonRef.current = addon;
+            } catch {
+              // WebGL not supported — silently fall back to DOM renderer
+            }
+          }
+
           // Flush buffered output
           if (bufferRef.current.length > 0) {
             const pending = bufferRef.current.splice(0);
@@ -324,6 +346,7 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
       rcBufferRef.current = null;
       if (rcTimeoutRef.current) { clearTimeout(rcTimeoutRef.current); rcTimeoutRef.current = null; }
       if (initObserverRef.current) { initObserverRef.current.disconnect(); initObserverRef.current = null; }
+      if (webglAddonRef.current) { webglAddonRef.current.dispose(); webglAddonRef.current = null; }
       if (fitAddonRef.current) { fitAddonRef.current.dispose(); fitAddonRef.current = null; }
       if (xtermRef.current) { xtermRef.current.dispose(); xtermRef.current = null; }
     };
@@ -416,27 +439,27 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
               {terminal.title}
             </span>
           )}
-          {terminal.clickUpTask && (
+          {terminal.task && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                if (terminal.clickUpTask?.url) window.electronAPI?.openExternal?.(terminal.clickUpTask.url);
+                if (terminal.task?.url) window.electronAPI?.openExternal?.(terminal.task.url);
               }}
               className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] hover:opacity-80 transition-opacity min-w-0 shrink"
               style={{
-                backgroundColor: `${terminal.clickUpTask.statusColor}20`,
-                color: terminal.clickUpTask.statusColor,
+                backgroundColor: `${terminal.task.statusColor}20`,
+                color: terminal.task.statusColor,
               }}
-              title={`${terminal.clickUpTask.name} — Click to open in ClickUp`}
+              title={`${terminal.task.name} — Click to open task`}
             >
               <span
                 className="w-1.5 h-1.5 rounded-full shrink-0"
-                style={{ backgroundColor: terminal.clickUpTask.statusColor }}
+                style={{ backgroundColor: terminal.task.statusColor }}
               />
-              {terminal.clickUpTask.customId && (
-                <span className="font-mono shrink-0">{terminal.clickUpTask.customId}</span>
+              {terminal.task.customId && (
+                <span className="font-mono shrink-0">{terminal.task.customId}</span>
               )}
-              <span className="truncate">{terminal.clickUpTask.name}</span>
+              <span className="truncate">{terminal.task.name}</span>
               <ExternalLink className="w-2.5 h-2.5 shrink-0 opacity-60" />
             </button>
           )}
@@ -446,13 +469,13 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
               <span className="font-mono">{terminal.worktreeBranch}</span>
             </span>
           )}
-          {!terminal.clickUpTask && !terminal.worktreeBranch && isSplit && (
+          {!terminal.task && !terminal.worktreeBranch && isSplit && (
             <span className="text-[10px] text-[var(--text-muted)] truncate">{terminal.cwd || '~'}</span>
           )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
           {/* Time tracker */}
-          {terminal.clickUpTask && (
+          {terminal.task && (
             <div className="flex items-center gap-1 mr-1">
               <button
                 onClick={(e) => { e.stopPropagation(); handleToggleTimer(); }}
@@ -462,7 +485,7 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
                     ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
                     : 'bg-sky-500/20 text-sky-400 hover:bg-sky-500/30'
                 )}
-                title={isTimerRunning ? 'Stop timer & sync to ClickUp' : 'Start time tracking'}
+                title={isTimerRunning ? 'Stop timer & sync time' : 'Start time tracking'}
               >
                 {isTimerRunning ? <Square className="w-3 h-3" /> : <Play className="w-3 h-3" />}
               </button>
@@ -477,7 +500,7 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
               )}
             </div>
           )}
-          {terminal.clickUpTask && onMergeComplete && (
+          {terminal.task && onMergeComplete && (
             <button
               onClick={(e) => { e.stopPropagation(); onMergeComplete(); }}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
@@ -498,61 +521,49 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
                   className="flex items-center gap-1 px-2 py-1 rounded-md text-xs bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]/80 transition-colors"
                   title="Select AI provider"
                 >
-                  {terminal.copilotProvider === 'claude' ? (
-                    <><Bot className="w-3 h-3" />{!isSplit && 'Claude'}</>
-                  ) : (
-                    <><GitBranch className="w-3 h-3" />{!isSplit && 'Copilot'}</>
-                  )}
+                  <Bot className="w-3 h-3" />
+                  {!isSplit && (currentProvider?.displayName || terminal.agentProvider)}
                   <ChevronDown className="w-3 h-3" />
                 </button>
                 {showProviderMenu && (
-                  <div className="absolute right-0 top-full mt-1 z-50 w-40 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-2xl overflow-hidden">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onProviderChange('claude'); setShowProviderMenu(false); }}
-                      className={cn(
-                        'w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[var(--bg-tertiary)] transition-colors',
-                        terminal.copilotProvider === 'claude' ? 'text-[var(--accent)]' : 'text-[var(--text-secondary)]'
-                      )}
-                    >
-                      <Bot className="w-3.5 h-3.5" />
-                      Claude Code
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onProviderChange('copilot'); setShowProviderMenu(false); }}
-                      className={cn(
-                        'w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[var(--bg-tertiary)] transition-colors',
-                        terminal.copilotProvider === 'copilot' ? 'text-emerald-400' : 'text-[var(--text-secondary)]'
-                      )}
-                    >
-                      <GitBranch className="w-3.5 h-3.5" />
-                      GitHub Copilot
-                    </button>
+                  <div className="absolute right-0 top-full mt-1 z-50 w-44 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-2xl overflow-hidden max-h-60 overflow-y-auto">
+                    {agentProviders.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={(e) => { e.stopPropagation(); onProviderChange(p.id); setShowProviderMenu(false); }}
+                        className={cn(
+                          'w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[var(--bg-tertiary)] transition-colors',
+                          terminal.agentProvider === p.id ? 'font-medium' : 'text-[var(--text-secondary)]'
+                        )}
+                        style={terminal.agentProvider === p.id ? { color: p.color } : undefined}
+                      >
+                        <Bot className="w-3.5 h-3.5" />
+                        {p.displayName}
+                        {!p.available && <span className="text-[9px] text-[var(--text-muted)] ml-auto">(N/A)</span>}
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
               {/* Start button */}
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  terminal.copilotProvider === 'copilot' ? onInvokeCopilot() : onInvokeClaude();
+                onClick={(e) => { e.stopPropagation(); onInvokeAgent(); }}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors"
+                style={{
+                  backgroundColor: `${currentProvider?.color || '#6366f1'}20`,
+                  color: currentProvider?.color || '#6366f1',
                 }}
-                className={cn(
-                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors',
-                  terminal.copilotProvider === 'copilot'
-                    ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'
-                    : 'bg-[var(--accent)]/20 text-[var(--accent)] hover:bg-[var(--accent)]/30'
-                )}
-                title={terminal.copilotProvider === 'copilot' ? 'Start GitHub Copilot' : 'Start Claude Code'}
+                title={`Start ${currentProvider?.displayName || terminal.agentProvider}`}
               >
-                {terminal.copilotProvider === 'copilot' ? <GitBranch className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
+                <Bot className="w-3.5 h-3.5" />
                 {!isSplit && 'Start'}
               </button>
-              {/* YOLO button — Claude only */}
-              {terminal.copilotProvider === 'claude' && (
+              {/* YOLO button — only for agents with yolo capability */}
+              {currentProvider?.capabilities.yolo && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); onInvokeClaudeYolo(); }}
+                  onClick={(e) => { e.stopPropagation(); onInvokeAgent(true); }}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors"
-                  title="Start Claude Code (skip permissions)"
+                  title={`Start ${currentProvider.displayName} (skip permissions)`}
                 >
                   <Bot className="w-3.5 h-3.5" />
                   {!isSplit && 'YOLO'}
@@ -560,35 +571,36 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
               )}
             </>
           )}
-          {terminal.isClaudeMode && terminal.copilotProvider !== 'copilot' && (
+          {terminal.isClaudeMode && (
             <>
+              {/* Mobile button — only for agents with remoteControl */}
+              {currentProvider?.capabilities.remoteControl && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    rcBufferRef.current = '';
+                    if (rcTimeoutRef.current) clearTimeout(rcTimeoutRef.current);
+                    rcTimeoutRef.current = setTimeout(() => { rcBufferRef.current = null; rcTimeoutRef.current = null; }, 15000);
+                    window.electronAPI.sendTerminalInput(terminal.id, '/remote-control');
+                    setTimeout(() => window.electronAPI.sendTerminalInput(terminal.id, '\r'), 50);
+                  }}
+                  disabled={terminal.isClaudeBusy}
+                  className={cn(
+                    'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors',
+                    terminal.isClaudeBusy
+                      ? 'bg-[var(--text-muted)]/10 text-[var(--text-muted)] cursor-not-allowed opacity-50'
+                      : 'bg-violet-500/20 text-violet-400 hover:bg-violet-500/30'
+                  )}
+                  title={terminal.isClaudeBusy ? `Wait for ${currentProvider.displayName} to finish` : 'Open remote control (mobile access)'}
+                >
+                  <Smartphone className="w-3.5 h-3.5" />
+                  {!isSplit && 'Mobile'}
+                </button>
+              )}
+              {/* Clear button */}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  // Start capturing output to extract the URL
-                  rcBufferRef.current = '';
-                  if (rcTimeoutRef.current) clearTimeout(rcTimeoutRef.current);
-                  rcTimeoutRef.current = setTimeout(() => { rcBufferRef.current = null; rcTimeoutRef.current = null; }, 15000);
-                  // Send text first, then Enter separately (mimics typing)
-                  window.electronAPI.sendTerminalInput(terminal.id, '/remote-control');
-                  setTimeout(() => window.electronAPI.sendTerminalInput(terminal.id, '\r'), 50);
-                }}
-                disabled={terminal.isClaudeBusy}
-                className={cn(
-                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors',
-                  terminal.isClaudeBusy
-                    ? 'bg-[var(--text-muted)]/10 text-[var(--text-muted)] cursor-not-allowed opacity-50'
-                    : 'bg-violet-500/20 text-violet-400 hover:bg-violet-500/30'
-                )}
-                title={terminal.isClaudeBusy ? 'Wait for Claude to finish' : 'Open remote control (mobile access)'}
-              >
-                <Smartphone className="w-3.5 h-3.5" />
-                {!isSplit && 'Mobile'}
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  // Ctrl+U clears the current input line
                   window.electronAPI.sendTerminalInput(terminal.id, '\x15');
                 }}
                 disabled={terminal.isClaudeBusy}
@@ -598,34 +610,21 @@ export function TerminalPanel({ terminal, isActive, isSplit, onInvokeClaude, onI
                     ? 'bg-[var(--text-muted)]/10 text-[var(--text-muted)] cursor-not-allowed opacity-50'
                     : 'bg-orange-500/20 text-orange-400 hover:bg-orange-500/30'
                 )}
-                title={terminal.isClaudeBusy ? 'Wait for Claude to finish' : 'Clear input text'}
+                title={terminal.isClaudeBusy ? `Wait for ${currentProvider?.displayName || 'agent'} to finish` : 'Clear input text'}
               >
                 <Eraser className="w-3.5 h-3.5" />
                 {!isSplit && 'Clear'}
               </button>
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-[var(--success)]/20 text-[var(--success)]">
-                <Bot className={cn('w-3.5 h-3.5', terminal.isClaudeBusy && 'animate-pulse')} />
-                {!isSplit && (terminal.isClaudeBusy ? 'Thinking...' : 'Claude Active')}
-              </div>
-            </>
-          )}
-          {terminal.isClaudeMode && terminal.copilotProvider === 'copilot' && (
-            <>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  // Ctrl+U clears the current input line
-                  window.electronAPI.sendTerminalInput(terminal.id, '\x15');
+              {/* Active indicator */}
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs"
+                style={{
+                  backgroundColor: `${currentProvider?.color || '#22c55e'}20`,
+                  color: currentProvider?.color || '#22c55e',
                 }}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
-                title="Clear input text"
               >
-                <Eraser className="w-3.5 h-3.5" />
-                {!isSplit && 'Clear'}
-              </button>
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-emerald-500/20 text-emerald-400">
-                <GitBranch className="w-3.5 h-3.5" />
-                {!isSplit && 'Copilot Active'}
+                <Bot className={cn('w-3.5 h-3.5', terminal.isClaudeBusy && 'animate-pulse')} />
+                {!isSplit && (terminal.isClaudeBusy ? 'Thinking...' : `${currentProvider?.displayName || 'Agent'} Active`)}
               </div>
             </>
           )}

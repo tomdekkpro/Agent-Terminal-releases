@@ -3,46 +3,85 @@ import { createPortal } from 'react-dom';
 import {
   Plus, X, Bot, Terminal as TerminalIcon, Search,
   Columns2, ChevronDown, GitBranch, GitMerge, GitPullRequest,
-  ArrowLeft, FolderGit2, Folder, Upload, Download, RefreshCw,
+  ArrowLeft, FolderGit2, Folder, Upload, Download, RefreshCw, List,
 } from 'lucide-react';
-import { useTerminalStore, type TerminalClickUpTask } from '../../stores/terminal-store';
+import { useTerminalStore } from '../../stores/terminal-store';
 import { useSettingsStore } from '../../stores/settings-store';
 import { useProjectStore } from '../../stores/project-store';
 import { TerminalPanel } from './TerminalPanel';
 import { UsageIndicator } from '../usage/UsageIndicator';
 import { cn } from '../../../shared/utils';
-import type { ClickUpTask } from '../../../shared/types';
+import type { TaskManagerTask, TaskManagerList, TerminalTask, AgentProviderMeta } from '../../../shared/types';
 
-/** Task Picker Modal - shown when creating terminal with ClickUp task */
+/** Task Picker Modal - shown when creating terminal with task */
 function TaskPickerModal({
   onSelect,
   onCancel,
   onPlain,
 }: {
-  onSelect: (task: ClickUpTask, useWorktree: boolean) => void;
+  onSelect: (task: TaskManagerTask, useWorktree: boolean) => void;
   onCancel: () => void;
   onPlain: () => void;
 }) {
-  const [tasks, setTasks] = useState<ClickUpTask[]>([]);
+  const settings = useSettingsStore((s) => s.settings);
+  const [tasks, setTasks] = useState<TaskManagerTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [search, setSearch] = useState('');
-  const [selectedTask, setSelectedTask] = useState<ClickUpTask | null>(null);
+  const [selectedTask, setSelectedTask] = useState<TaskManagerTask | null>(null);
   const [includeClosed, setIncludeClosed] = useState(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
-  const doSearch = useCallback(async (query: string, closed: boolean) => {
-    const result = await window.electronAPI.searchClickUpTasks(
+  // Lists
+  const [lists, setLists] = useState<TaskManagerList[]>([]);
+  const [selectedListId, setSelectedListId] = useState<string>('');
+  const [showListDropdown, setShowListDropdown] = useState(false);
+  const listDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close list dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (listDropdownRef.current && !listDropdownRef.current.contains(e.target as Node)) {
+        setShowListDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // Fetch lists on mount
+  useEffect(() => {
+    window.electronAPI.getTaskManagerLists().then((result: any) => {
+      if (result.success && result.data) {
+        setLists(result.data);
+        if (result.data.length > 0) {
+          const defaultId = settings.clickupListId || result.data[0].id;
+          const exists = result.data.some((l: TaskManagerList) => l.id === defaultId);
+          setSelectedListId(exists ? defaultId : result.data[0].id);
+        }
+      }
+    });
+  }, []);
+
+  const doSearch = useCallback(async (query: string, closed: boolean, listId?: string) => {
+    const result = await window.electronAPI.searchTaskManagerTasks(
       query,
-      { includeClosed: closed }
+      { includeClosed: closed },
+      listId,
     );
     if (result.success && result.data) setTasks(result.data);
   }, []);
 
+  // Load tasks when selectedListId is set
   useEffect(() => {
-    doSearch('', includeClosed)
+    if (!selectedListId) return;
+    setLoading(true);
+    doSearch('', includeClosed, selectedListId)
       .catch(() => {})
       .finally(() => setLoading(false));
+  }, [selectedListId]);
+
+  useEffect(() => {
     return () => {
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     };
@@ -55,22 +94,31 @@ function TaskPickerModal({
     searchTimerRef.current = setTimeout(async () => {
       setSearching(true);
       try {
-        await doSearch(value, includeClosed);
+        await doSearch(value, includeClosed, selectedListId);
       } catch {
         // Keep existing tasks on error
       } finally {
         setSearching(false);
       }
     }, 300);
-  }, [doSearch, includeClosed]);
+  }, [doSearch, includeClosed, selectedListId]);
 
   // Re-fetch when includeClosed changes
   useEffect(() => {
+    if (!selectedListId) return;
     setSearching(true);
-    doSearch(search, includeClosed)
+    doSearch(search, includeClosed, selectedListId)
       .catch(() => {})
       .finally(() => setSearching(false));
   }, [includeClosed]);
+
+  const selectedList = lists.find((l) => l.id === selectedListId);
+  const listsBySpace = lists.reduce<Record<string, TaskManagerList[]>>((acc, list) => {
+    const key = list.space || 'Other';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(list);
+    return acc;
+  }, {});
 
   const filtered = tasks;
 
@@ -97,7 +145,7 @@ function TaskPickerModal({
                 style={{ backgroundColor: selectedTask.status.color }}
               />
               <span className="text-xs text-[var(--text-secondary)] truncate">
-                {selectedTask.custom_id && <span className="font-mono mr-1.5">{selectedTask.custom_id}</span>}
+                {selectedTask.customId && <span className="font-mono mr-1.5">{selectedTask.customId}</span>}
                 {selectedTask.name}
               </span>
             </div>
@@ -151,6 +199,60 @@ function TaskPickerModal({
           <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3">
             Start Terminal with Task
           </h2>
+
+          {/* List selector */}
+          {lists.length > 0 && (
+            <div className="relative mb-2" ref={listDropdownRef}>
+              <button
+                onClick={() => setShowListDropdown(!showListDropdown)}
+                className="w-full flex items-center justify-between px-3 py-2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] hover:border-[var(--accent)] transition-colors"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <List className="w-4 h-4 text-[var(--text-muted)] shrink-0" />
+                  <span className="truncate">
+                    {selectedList ? selectedList.name : 'Select a list...'}
+                    {selectedList?.folder && (
+                      <span className="text-[var(--text-muted)]"> &middot; {selectedList.folder}</span>
+                    )}
+                  </span>
+                </div>
+                <ChevronDown className={cn('w-4 h-4 text-[var(--text-muted)] shrink-0 transition-transform', showListDropdown && 'rotate-180')} />
+              </button>
+
+              {showListDropdown && (
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-xl">
+                  {Object.entries(listsBySpace).map(([space, spaceLists]) => (
+                    <div key={space}>
+                      {Object.keys(listsBySpace).length > 1 && (
+                        <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-[var(--text-muted)] bg-[var(--bg-secondary)] sticky top-0">
+                          {space}
+                        </div>
+                      )}
+                      {spaceLists.map((list) => (
+                        <button
+                          key={list.id}
+                          onClick={() => {
+                            setSelectedListId(list.id);
+                            setShowListDropdown(false);
+                          }}
+                          className={cn(
+                            'w-full text-left px-3 py-2 text-sm transition-colors hover:bg-[var(--bg-tertiary)]',
+                            list.id === selectedListId && 'bg-[var(--accent)]/10 text-[var(--accent)]'
+                          )}
+                        >
+                          <span>{list.name}</span>
+                          {list.folder && (
+                            <span className="text-[10px] text-[var(--text-muted)] ml-2">{list.folder}</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="relative">
             {searching ? (
               <RefreshCw className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--accent)] animate-spin" />
@@ -199,9 +301,9 @@ function TaskPickerModal({
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      {task.custom_id && (
+                      {task.customId && (
                         <span className="text-[10px] font-mono text-[var(--text-muted)] shrink-0">
-                          {task.custom_id}
+                          {task.customId}
                         </span>
                       )}
                       <span className="text-sm text-[var(--text-primary)] truncate">
@@ -216,11 +318,11 @@ function TaskPickerModal({
                           color: task.status.color,
                         }}
                       >
-                        {task.status.status}
+                        {task.status.name}
                       </span>
                       {task.priority && (
                         <span className="text-[10px] text-[var(--text-muted)]">
-                          P{task.priority.id}
+                          {task.priority.name}
                         </span>
                       )}
                     </div>
@@ -480,6 +582,16 @@ export function TerminalView({ projectId }: TerminalViewProps) {
   const canAddTerminal = useTerminalStore((s) => s.canAddTerminal);
   const settings = useSettingsStore((s) => s.settings);
 
+  // Agent providers from registry
+  const [agentProviders, setAgentProviders] = useState<AgentProviderMeta[]>([]);
+  useEffect(() => {
+    window.electronAPI.getAgentProviders?.()
+      .then((result: any) => {
+        if (result.success && result.data) setAgentProviders(result.data);
+      })
+      .catch(() => {});
+  }, []);
+
   // Lazy-mount: only render TerminalPanel once a group has been active
   const [mountedGroups, setMountedGroups] = useState<Set<string>>(new Set());
 
@@ -629,48 +741,49 @@ export function TerminalView({ projectId }: TerminalViewProps) {
 
   /** Setup a terminal with task info, optionally create worktree, create PTY, and optionally start Claude */
   const setupTerminalWithTask = useCallback(
-    async (terminal: { id: string }, task?: ClickUpTask, useWorktree = true) => {
+    async (terminal: { id: string }, task?: TaskManagerTask, useWorktree = true) => {
       let cwd = activeProject?.path || '';
 
       if (task) {
-        const title = `${task.custom_id || task.id} - ${task.name}`.slice(0, 40);
-        const clickUpTask: TerminalClickUpTask = {
+        const title = `${task.customId || task.id} - ${task.name}`.slice(0, 40);
+        const terminalTask: TerminalTask = {
           id: task.id,
-          customId: task.custom_id,
+          customId: task.customId,
           name: task.name,
-          status: task.status.status,
+          status: task.status.name,
           statusColor: task.status.color,
           url: task.url,
+          provider: task.provider,
         };
 
         if (useWorktree && activeProject?.path) {
           // Create git worktree for task isolation
-          const taskSlug = task.custom_id || task.id;
+          const taskSlug = task.customId || task.id;
           const result = await window.electronAPI.createTaskWorktree(activeProject.path, taskSlug);
           if (result.success && result.data) {
             cwd = result.data;
             useTerminalStore.getState().updateTerminal(terminal.id, {
               title,
-              clickUpTask,
+              task: terminalTask,
               cwd,
               worktreePath: result.data,
               worktreeBranch: result.branch,
             });
           } else {
             // Worktree failed (not a git repo, etc.) — use project dir
-            useTerminalStore.getState().updateTerminal(terminal.id, { title, clickUpTask });
+            useTerminalStore.getState().updateTerminal(terminal.id, { title, task: terminalTask });
           }
         } else {
           // Use current branch / project directory
-          useTerminalStore.getState().updateTerminal(terminal.id, { title, clickUpTask });
+          useTerminalStore.getState().updateTerminal(terminal.id, { title, task: terminalTask });
         }
 
-        // Fetch existing tracked time from ClickUp as initial elapsed
+        // Fetch existing tracked time as initial elapsed
         try {
-          const timeResult = await window.electronAPI.getClickUpTimeEntries(task.id);
-          if (timeResult.success && timeResult.totalMs > 0) {
+          const timeResult = await window.electronAPI.getTaskTimeEntries(task.id);
+          if (timeResult.success && timeResult.data?.totalMs > 0) {
             useTerminalStore.getState().updateTerminal(terminal.id, {
-              timeTracking: { startedAt: null, elapsed: timeResult.totalMs },
+              timeTracking: { startedAt: null, elapsed: timeResult.data.totalMs },
             });
           }
         } catch { /* non-critical */ }
@@ -685,12 +798,14 @@ export function TerminalView({ projectId }: TerminalViewProps) {
 
       if (task) {
         setTimeout(async () => {
-          const claudeModel = useSettingsStore.getState().settings.defaultModel;
-          const invokeResult = await window.electronAPI.invokeClaude(terminal.id, cwd, undefined, claudeModel || undefined);
+          const settings = useSettingsStore.getState().settings;
+          const agentId = settings.defaultAgentProvider || 'claude';
+          const model = settings.agentModels?.[agentId] || undefined;
+          const invokeResult = await window.electronAPI.invokeAgent(terminal.id, agentId, { cwd, model });
           if (invokeResult.success) {
             useTerminalStore.getState().setClaudeMode(terminal.id, true);
           } else {
-            setCliError(invokeResult.error || 'Failed to start Claude Code');
+            setCliError(invokeResult.error || `Failed to start ${agentId}`);
             setTimeout(() => setCliError(null), 8000);
           }
           setTimeout(() => {
@@ -703,9 +818,9 @@ export function TerminalView({ projectId }: TerminalViewProps) {
     [activeProject]
   );
 
-  /** Create a terminal in a new tab, optionally with a ClickUp task */
+  /** Create a terminal in a new tab, optionally with a task */
   const createTerminalNewTab = useCallback(
-    async (task?: ClickUpTask, useWorktree = true) => {
+    async (task?: TaskManagerTask, useWorktree = true) => {
       if (!canAddTerminal()) return;
       const terminal = addTerminal(activeProject?.path, projectId);
       if (!terminal) return;
@@ -716,7 +831,7 @@ export function TerminalView({ projectId }: TerminalViewProps) {
 
   /** Create a terminal in the current group (split), optionally with task */
   const createTerminalSplit = useCallback(
-    async (task?: ClickUpTask, useWorktree = true) => {
+    async (task?: TaskManagerTask, useWorktree = true) => {
       if (!canAddTerminal()) return;
       if (!activeGroupId) {
         createTerminalNewTab(task, useWorktree);
@@ -731,13 +846,13 @@ export function TerminalView({ projectId }: TerminalViewProps) {
 
   const handleNewTerminal = useCallback(() => {
     if (!canAddTerminal()) return;
-    if (settings.clickupEnabled && settings.clickupApiKey) {
+    if (settings.taskManagerProvider !== 'none') {
       setTaskPickerMode('tab');
       setShowTaskPicker(true);
     } else {
       createTerminalNewTab();
     }
-  }, [canAddTerminal, settings.clickupEnabled, settings.clickupApiKey, createTerminalNewTab]);
+  }, [canAddTerminal, settings.taskManagerProvider, createTerminalNewTab]);
 
   // Listen for Ctrl+N shortcut from App
   useEffect(() => {
@@ -748,27 +863,27 @@ export function TerminalView({ projectId }: TerminalViewProps) {
 
   const handleNewSplit = useCallback(() => {
     if (!canAddTerminal()) return;
-    if (settings.clickupEnabled && settings.clickupApiKey) {
+    if (settings.taskManagerProvider !== 'none') {
       setTaskPickerMode('split');
       setShowTaskPicker(true);
     } else {
       createTerminalSplit();
     }
-  }, [canAddTerminal, settings.clickupEnabled, settings.clickupApiKey, createTerminalSplit]);
+  }, [canAddTerminal, settings.taskManagerProvider, createTerminalSplit]);
 
-  /** Sync timer to ClickUp for a terminal if it has a running/accumulated timer */
-  const syncTimerBeforeClose = useCallback(async (terminal: { id: string; clickUpTask?: { id: string }; timeTracking?: { startedAt: number | null; elapsed: number } }) => {
-    if (!terminal.timeTracking || !terminal.clickUpTask) return;
+  /** Sync timer to task manager for a terminal if it has a running/accumulated timer */
+  const syncTimerBeforeClose = useCallback(async (terminal: { id: string; task?: TerminalTask; timeTracking?: { startedAt: number | null; elapsed: number } }) => {
+    if (!terminal.timeTracking || !terminal.task) return;
     const { startedAt, elapsed } = terminal.timeTracking;
     const total = elapsed + (startedAt ? Date.now() - startedAt : 0);
     if (total > 0 && startedAt) {
       try {
-        await window.electronAPI.postClickUpTimeEntry(terminal.clickUpTask.id, startedAt, total);
+        await window.electronAPI.postTaskTimeEntry(terminal.task.id, startedAt, total);
       } catch { /* non-critical */ }
     } else if (total > 0 && !startedAt) {
       // Timer was paused but has accumulated time — use current time as reference
       try {
-        await window.electronAPI.postClickUpTimeEntry(terminal.clickUpTask.id, Date.now() - total, total);
+        await window.electronAPI.postTaskTimeEntry(terminal.task.id, Date.now() - total, total);
       } catch { /* non-critical */ }
     }
   }, []);
@@ -798,30 +913,27 @@ export function TerminalView({ projectId }: TerminalViewProps) {
 
   const [cliError, setCliError] = useState<string | null>(null);
 
-  const handleInvokeClaude = useCallback(async (id: string, skipPermissions?: boolean) => {
-    const claudeModel = useSettingsStore.getState().settings.defaultModel;
-    const result = await window.electronAPI.invokeClaude(id, activeProject?.path, skipPermissions, claudeModel || undefined);
+  const handleInvokeAgent = useCallback(async (id: string, skipPermissions?: boolean) => {
+    const terminal = useTerminalStore.getState().getTerminal(id);
+    if (!terminal) return;
+    const agentId = terminal.agentProvider;
+    const settings = useSettingsStore.getState().settings;
+    const model = settings.agentModels?.[agentId] || undefined;
+    const result = await window.electronAPI.invokeAgent(id, agentId, {
+      cwd: activeProject?.path,
+      skipPermissions,
+      model,
+    });
     if (result.success) {
       useTerminalStore.getState().setClaudeMode(id, true);
     } else {
-      setCliError(result.error || 'Failed to start Claude Code');
+      setCliError(result.error || `Failed to start ${agentId}`);
       setTimeout(() => setCliError(null), 8000);
     }
   }, [activeProject]);
 
-  const handleInvokeCopilot = useCallback(async (id: string) => {
-    const copilotModel = useSettingsStore.getState().settings.defaultCopilotModel;
-    const result = await window.electronAPI.invokeCopilot(id, activeProject?.path, copilotModel || undefined);
-    if (result.success) {
-      useTerminalStore.getState().setClaudeMode(id, true);
-    } else {
-      setCliError(result.error || 'Failed to start GitHub Copilot');
-      setTimeout(() => setCliError(null), 8000);
-    }
-  }, [activeProject]);
-
-  const handleProviderChange = useCallback((id: string, provider: import('../../../shared/types').CopilotProvider) => {
-    useTerminalStore.getState().setCopilotProvider(id, provider);
+  const handleProviderChange = useCallback((id: string, provider: import('../../../shared/types').AgentProviderId) => {
+    useTerminalStore.getState().setAgentProvider(id, provider);
   }, []);
 
   const [mergeStatus, setMergeStatus] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -832,10 +944,10 @@ export function TerminalView({ projectId }: TerminalViewProps) {
     currentBranch?: string;
     cwd?: string;
     isWorktree: boolean;
-    clickUpTask?: TerminalClickUpTask;
+    task?: TerminalTask;
   } | null>(null);
 
-  const handleMergeComplete = useCallback(async (terminal: { id: string; cwd?: string; worktreePath?: string; worktreeBranch?: string; clickUpTask?: TerminalClickUpTask }) => {
+  const handleMergeComplete = useCallback(async (terminal: { id: string; cwd?: string; worktreePath?: string; worktreeBranch?: string; task?: TerminalTask }) => {
     if (!activeProject?.path) return;
 
     if (terminal.worktreePath && terminal.worktreeBranch) {
@@ -845,9 +957,9 @@ export function TerminalView({ projectId }: TerminalViewProps) {
         worktreePath: terminal.worktreePath,
         worktreeBranch: terminal.worktreeBranch,
         isWorktree: true,
-        clickUpTask: terminal.clickUpTask,
+        task: terminal.task,
       });
-    } else if (terminal.clickUpTask) {
+    } else if (terminal.task) {
       // Current-branch mode — detect current branch
       const cwd = terminal.cwd || activeProject.path;
       try {
@@ -858,19 +970,19 @@ export function TerminalView({ projectId }: TerminalViewProps) {
             currentBranch: result.current,
             cwd,
             isWorktree: false,
-            clickUpTask: terminal.clickUpTask,
+            task: terminal.task,
           });
         }
       } catch { /* ignore */ }
     }
   }, [activeProject]);
 
-  /** Stop timer and sync to ClickUp */
-  const stopAndSyncTimer = useCallback(async (terminalId: string, clickUpTaskId?: string) => {
+  /** Stop timer and sync to task manager */
+  const stopAndSyncTimer = useCallback(async (terminalId: string, taskId?: string) => {
     const result = useTerminalStore.getState().stopTimer(terminalId);
-    if (result && result.startedAt && clickUpTaskId && result.elapsed > 0) {
+    if (result && result.startedAt && taskId && result.elapsed > 0) {
       try {
-        await window.electronAPI.postClickUpTimeEntry(clickUpTaskId, result.startedAt, result.elapsed);
+        await window.electronAPI.postTaskTimeEntry(taskId, result.startedAt, result.elapsed);
       } catch { /* non-critical */ }
     }
   }, []);
@@ -894,11 +1006,11 @@ export function TerminalView({ projectId }: TerminalViewProps) {
       });
 
       // Stop timer and sync tracked time
-      await stopAndSyncTimer(mergeTarget.id, mergeTarget.clickUpTask?.id);
+      await stopAndSyncTimer(mergeTarget.id, mergeTarget.task?.id);
 
-      if (mergeTarget.clickUpTask) {
+      if (mergeTarget.task) {
         try {
-          await window.electronAPI.updateClickUpStatus(mergeTarget.clickUpTask.id, 'complete');
+          await window.electronAPI.updateTaskStatus(mergeTarget.task.id, 'complete');
         } catch { /* non-critical */ }
       }
 
@@ -953,7 +1065,7 @@ export function TerminalView({ projectId }: TerminalViewProps) {
       }
 
       // Stop timer and sync tracked time
-      await stopAndSyncTimer(saved.id, saved.clickUpTask?.id);
+      await stopAndSyncTimer(saved.id, saved.task?.id);
       // Clean up worktree — code is on remote now
       await cleanupWorktree(saved);
     } else {
@@ -980,13 +1092,13 @@ export function TerminalView({ projectId }: TerminalViewProps) {
       setMergeStatus({ message: msg, type: 'success' });
 
       // Stop timer and sync tracked time
-      await stopAndSyncTimer(saved.id, saved.clickUpTask?.id);
+      await stopAndSyncTimer(saved.id, saved.task?.id);
       // Clean up worktree — code is on remote now
       await cleanupWorktree(saved);
 
-      if (saved.clickUpTask) {
+      if (saved.task) {
         try {
-          await window.electronAPI.updateClickUpStatus(saved.clickUpTask.id, 'complete');
+          await window.electronAPI.updateTaskStatus(saved.task.id, 'complete');
         } catch { /* non-critical */ }
       }
     } else {
@@ -1017,7 +1129,7 @@ export function TerminalView({ projectId }: TerminalViewProps) {
       {mergeTarget && activeProject && (
         <CompleteTaskModal
           taskBranch={mergeTarget.worktreeBranch || mergeTarget.currentBranch || ''}
-          taskName={mergeTarget.clickUpTask?.name}
+          taskName={mergeTarget.task?.name}
           projectPath={mergeTarget.cwd || activeProject.path}
           isWorktree={mergeTarget.isWorktree}
           onMerge={executeMerge}
@@ -1120,16 +1232,12 @@ export function TerminalView({ projectId }: TerminalViewProps) {
               {isGroupSplit ? (
                 <Columns2 className="w-3.5 h-3.5 shrink-0" />
               ) : hasClaudeActive ? (
-                groupTerminals.some((t) => t.isClaudeMode && t.copilotProvider === 'copilot') ? (
-                  <GitBranch className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
-                ) : (
-                  <Bot
-                    className={cn(
-                      'w-3.5 h-3.5 shrink-0',
-                      hasClaudeBusy && 'animate-pulse text-[var(--accent)]'
-                    )}
-                  />
-                )
+                <Bot
+                  className={cn(
+                    'w-3.5 h-3.5 shrink-0',
+                    hasClaudeBusy && 'animate-pulse text-[var(--accent)]'
+                  )}
+                />
               ) : (
                 <TerminalIcon className="w-3.5 h-3.5 shrink-0" />
               )}
@@ -1339,9 +1447,8 @@ export function TerminalView({ projectId }: TerminalViewProps) {
                           terminal={terminal}
                           isActive={activeTerminalId === terminal.id}
                           isSplit={true}
-                          onInvokeClaude={() => handleInvokeClaude(terminal.id)}
-                          onInvokeClaudeYolo={() => handleInvokeClaude(terminal.id, true)}
-                          onInvokeCopilot={() => handleInvokeCopilot(terminal.id)}
+                          agentProviders={agentProviders}
+                          onInvokeAgent={(skip) => handleInvokeAgent(terminal.id, skip)}
                           onProviderChange={(p) => handleProviderChange(terminal.id, p)}
                           onMergeComplete={() => handleMergeComplete(terminal)}
                           onClose={() => handleCloseTerminal(terminal.id)}
@@ -1357,9 +1464,8 @@ export function TerminalView({ projectId }: TerminalViewProps) {
                       <TerminalPanel
                         terminal={terminal}
                         isActive={isCurrentGroup}
-                        onInvokeClaude={() => handleInvokeClaude(terminal.id)}
-                        onInvokeClaudeYolo={() => handleInvokeClaude(terminal.id, true)}
-                        onInvokeCopilot={() => handleInvokeCopilot(terminal.id)}
+                        agentProviders={agentProviders}
+                        onInvokeAgent={(skip) => handleInvokeAgent(terminal.id, skip)}
                         onProviderChange={(p) => handleProviderChange(terminal.id, p)}
                         onMergeComplete={() => handleMergeComplete(terminal)}
                       />
@@ -1375,20 +1481,21 @@ export function TerminalView({ projectId }: TerminalViewProps) {
   );
 }
 
-/** Build a prompt string from a ClickUp task to send to Claude */
-function buildTaskPrompt(task: ClickUpTask): string {
+/** Build a prompt string from a task to send to Claude */
+function buildTaskPrompt(task: TaskManagerTask): string {
+  const providerLabel = task.provider === 'jira' ? 'Jira' : 'ClickUp';
   const lines: string[] = [];
-  lines.push(`I need you to work on the following task from ClickUp:`);
+  lines.push(`I need you to work on the following task from ${providerLabel}:`);
   lines.push(``);
   lines.push(`Task: ${task.name}`);
-  if (task.custom_id) lines.push(`ID: ${task.custom_id}`);
-  lines.push(`Status: ${task.status.status}`);
-  if (task.priority) lines.push(`Priority: ${task.priority.priority}`);
+  if (task.customId) lines.push(`ID: ${task.customId}`);
+  lines.push(`Status: ${task.status.name}`);
+  if (task.priority) lines.push(`Priority: ${task.priority.name}`);
   if (task.url) lines.push(`URL: ${task.url}`);
-  if (task.text_content) {
+  if (task.description) {
     lines.push(``);
     lines.push(`Description:`);
-    lines.push(task.text_content.slice(0, 2000));
+    lines.push(task.description.slice(0, 2000));
   }
   if (task.tags.length > 0) {
     lines.push(``);

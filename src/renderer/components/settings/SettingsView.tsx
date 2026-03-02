@@ -1,16 +1,16 @@
 import { useState, useEffect } from 'react';
 import { Settings, Terminal, CheckSquare, Bot, Palette, Save, RotateCcw, Loader2, CheckCircle, XCircle, Info, RefreshCw, Download } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settings-store';
-import type { AppSettings } from '../../../shared/types';
+import type { AppSettings, AgentProviderMeta } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
 
-type SettingsSection = 'general' | 'terminal' | 'clickup' | 'agent' | 'appearance';
+type SettingsSection = 'general' | 'terminal' | 'tasks' | 'agent' | 'appearance';
 
 const sections: { id: SettingsSection; icon: typeof Terminal; label: string; description: string }[] = [
   { id: 'general', icon: Info, label: 'General', description: 'Version and update settings' },
   { id: 'terminal', icon: Terminal, label: 'Terminal', description: 'Font, cursor, and display settings' },
-  { id: 'clickup', icon: CheckSquare, label: 'ClickUp', description: 'Task management integration' },
-  { id: 'agent', icon: Bot, label: 'Agent', description: 'AI copilot configuration' },
+  { id: 'tasks', icon: CheckSquare, label: 'Tasks', description: 'Task manager integration' },
+  { id: 'agent', icon: Bot, label: 'Agent', description: 'AI agent provider configuration' },
   { id: 'appearance', icon: Palette, label: 'Appearance', description: 'Theme and display options' },
 ];
 
@@ -20,13 +20,20 @@ export function SettingsView() {
   const [localSettings, setLocalSettings] = useState<AppSettings>(settings);
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [clickupStatus, setClickupStatus] = useState<'idle' | 'checking' | 'connected' | 'error'>('idle');
-  const [clickupMessage, setClickupMessage] = useState('');
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'checking' | 'connected' | 'error'>('idle');
+  const [connectionMessage, setConnectionMessage] = useState('');
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'up-to-date' | 'error'>('idle');
   const [updateInfo, setUpdateInfo] = useState<{ version?: string; percent?: number; error?: string }>({});
 
+  const [agentProviders, setAgentProviders] = useState<AgentProviderMeta[]>([]);
+
   useEffect(() => {
     loadSettings();
+    window.electronAPI.getAgentProviders?.()
+      .then((result: any) => {
+        if (result.success && result.data) setAgentProviders(result.data);
+      })
+      .catch(() => {});
   }, [loadSettings]);
 
   useEffect(() => {
@@ -62,30 +69,43 @@ export function SettingsView() {
     setHasChanges(false);
   };
 
-  const testClickUpConnection = async () => {
-    setClickupStatus('checking');
-    setClickupMessage('');
+  const testConnection = async () => {
+    setConnectionStatus('checking');
+    setConnectionMessage('');
     try {
-      // Save API key first
-      await updateSettings({
-        clickupApiKey: localSettings.clickupApiKey,
-        clickupEnabled: localSettings.clickupEnabled,
-        clickupWorkspaceId: localSettings.clickupWorkspaceId,
-        clickupListId: localSettings.clickupListId,
-      });
+      // Save provider-specific fields first
+      const providerFields: Partial<AppSettings> = {
+        taskManagerProvider: localSettings.taskManagerProvider,
+      };
+      if (localSettings.taskManagerProvider === 'clickup') {
+        providerFields.clickupApiKey = localSettings.clickupApiKey;
+        providerFields.clickupWorkspaceId = localSettings.clickupWorkspaceId;
+      } else if (localSettings.taskManagerProvider === 'jira') {
+        providerFields.jiraEmail = localSettings.jiraEmail;
+        providerFields.jiraApiToken = localSettings.jiraApiToken;
+        providerFields.jiraDomain = localSettings.jiraDomain;
+        providerFields.jiraProjectKey = localSettings.jiraProjectKey;
+      }
 
-      const result = await window.electronAPI.checkClickUpConnection();
+      await updateSettings(providerFields);
+
+      const result = await window.electronAPI.checkTaskManagerConnection();
       if (result.success) {
-        setClickupStatus('connected');
-        const workspace = result.data?.workspaces?.[0];
-        setClickupMessage(`Connected to ${workspace?.name || 'workspace'}`);
+        setConnectionStatus('connected');
+        if (localSettings.taskManagerProvider === 'clickup') {
+          const workspace = result.data?.workspaces?.[0];
+          setConnectionMessage(`Connected to ${workspace?.name || 'workspace'}`);
+        } else if (localSettings.taskManagerProvider === 'jira') {
+          const user = result.data?.user;
+          setConnectionMessage(`Connected as ${user?.displayName || user?.emailAddress || 'user'}`);
+        }
       } else {
-        setClickupStatus('error');
-        setClickupMessage(result.error || 'Connection failed');
+        setConnectionStatus('error');
+        setConnectionMessage(result.error || 'Connection failed');
       }
     } catch (err) {
-      setClickupStatus('error');
-      setClickupMessage(err instanceof Error ? err.message : 'Connection failed');
+      setConnectionStatus('error');
+      setConnectionMessage(err instanceof Error ? err.message : 'Connection failed');
     }
   };
 
@@ -165,7 +185,7 @@ export function SettingsView() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-[var(--text-primary)]">Agent Terminal</p>
-                      <p className="text-xs text-[var(--text-muted)] mt-0.5">Version 1.2.0</p>
+                      <p className="text-xs text-[var(--text-muted)] mt-0.5">Version 1.3.0</p>
                       <p className="text-[10px] text-[var(--text-muted)] mt-1">&copy; {new Date().getFullYear()} Tom. All rights reserved.</p>
                     </div>
                     {updateStatus === 'up-to-date' && (
@@ -367,35 +387,55 @@ export function SettingsView() {
                     )} />
                   </button>
                 </div>
-              </div>
-            </div>
-          )}
 
-          {activeSection === 'clickup' && (
-            <div className="space-y-6 max-w-xl">
-              <h2 className="text-lg font-semibold text-[var(--text-primary)]">ClickUp Integration</h2>
-
-              <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <label className="text-sm text-[var(--text-secondary)]">Enable ClickUp</label>
-                    <p className="text-[10px] text-[var(--text-muted)] mt-0.5">Connect your ClickUp workspace</p>
+                    <label className="text-sm text-[var(--text-secondary)]">GPU Acceleration</label>
+                    <p className="text-[10px] text-[var(--text-muted)] mt-0.5">Use WebGL renderer for faster terminal output. Restart terminals to apply.</p>
                   </div>
                   <button
-                    onClick={() => handleChange('clickupEnabled', !localSettings.clickupEnabled)}
+                    onClick={() => handleChange('terminalGpuAcceleration', !localSettings.terminalGpuAcceleration)}
                     className={cn(
-                      'w-10 h-5 rounded-full transition-colors relative',
-                      localSettings.clickupEnabled ? 'bg-[var(--clickup-purple)]' : 'bg-[var(--border)]'
+                      'w-10 h-5 rounded-full transition-colors relative shrink-0',
+                      localSettings.terminalGpuAcceleration ? 'bg-[var(--accent)]' : 'bg-[var(--border)]'
                     )}
                   >
                     <div className={cn(
                       'w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform',
-                      localSettings.clickupEnabled ? 'translate-x-5' : 'translate-x-0.5'
+                      localSettings.terminalGpuAcceleration ? 'translate-x-5' : 'translate-x-0.5'
                     )} />
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
 
-                {localSettings.clickupEnabled && (
+          {activeSection === 'tasks' && (
+            <div className="space-y-6 max-w-xl">
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">Task Manager Integration</h2>
+
+              <div className="space-y-4">
+                {/* Provider selector */}
+                <div>
+                  <label className="block text-sm text-[var(--text-secondary)] mb-1.5">Task Manager Provider</label>
+                  <select
+                    value={localSettings.taskManagerProvider}
+                    onChange={(e) => {
+                      handleChange('taskManagerProvider', e.target.value);
+                      setConnectionStatus('idle');
+                      setConnectionMessage('');
+                    }}
+                    className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
+                  >
+                    <option value="none">None</option>
+                    <option value="clickup">ClickUp</option>
+                    <option value="jira">Jira Cloud</option>
+                  </select>
+                  <p className="text-[10px] text-[var(--text-muted)] mt-1">Connect a task manager to link terminals with tasks</p>
+                </div>
+
+                {/* ClickUp config */}
+                {localSettings.taskManagerProvider === 'clickup' && (
                   <>
                     <div>
                       <label className="block text-sm text-[var(--text-secondary)] mb-1.5">API Token</label>
@@ -422,42 +462,6 @@ export function SettingsView() {
                       />
                     </div>
 
-                    <div>
-                      <label className="block text-sm text-[var(--text-secondary)] mb-1.5">Default List ID</label>
-                      <input
-                        type="text"
-                        value={localSettings.clickupListId}
-                        onChange={(e) => handleChange('clickupListId', e.target.value)}
-                        placeholder="Enter list ID for task sync"
-                        className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
-                      />
-                    </div>
-
-                    <div>
-                      <button
-                        onClick={testClickUpConnection}
-                        disabled={!localSettings.clickupApiKey || clickupStatus === 'checking'}
-                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--clickup-purple)] text-white text-sm hover:opacity-90 transition-opacity disabled:opacity-50"
-                      >
-                        {clickupStatus === 'checking' ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : clickupStatus === 'connected' ? (
-                          <CheckCircle className="w-4 h-4" />
-                        ) : clickupStatus === 'error' ? (
-                          <XCircle className="w-4 h-4" />
-                        ) : null}
-                        Test Connection
-                      </button>
-                      {clickupMessage && (
-                        <p className={cn(
-                          'text-xs mt-2',
-                          clickupStatus === 'connected' ? 'text-[var(--success)]' : 'text-[var(--error)]'
-                        )}>
-                          {clickupMessage}
-                        </p>
-                      )}
-                    </div>
-
                     <div className="p-3 rounded-lg bg-[var(--bg-card)] border border-[var(--border)]">
                       <h4 className="text-xs font-semibold text-[var(--text-primary)] mb-2">Setup Instructions</h4>
                       <ol className="text-[11px] text-[var(--text-muted)] space-y-1 list-decimal list-inside">
@@ -465,11 +469,104 @@ export function SettingsView() {
                         <li>Generate a personal API token</li>
                         <li>Paste it in the API Token field above</li>
                         <li>Enter your Workspace ID (found in URL)</li>
-                        <li>Enter the List ID for task synchronization</li>
+                        <li>Click "Test Connection" to verify</li>
+                        <li>Lists are loaded automatically in the Tasks view</li>
+                      </ol>
+                    </div>
+                  </>
+                )}
+
+                {/* Jira config */}
+                {localSettings.taskManagerProvider === 'jira' && (
+                  <>
+                    <div>
+                      <label className="block text-sm text-[var(--text-secondary)] mb-1.5">Email</label>
+                      <input
+                        type="email"
+                        value={localSettings.jiraEmail}
+                        onChange={(e) => handleChange('jiraEmail', e.target.value)}
+                        placeholder="you@company.com"
+                        className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-[var(--text-secondary)] mb-1.5">API Token</label>
+                      <input
+                        type="password"
+                        value={localSettings.jiraApiToken}
+                        onChange={(e) => handleChange('jiraApiToken', e.target.value)}
+                        placeholder="Enter your Jira API token"
+                        className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-[var(--text-secondary)] mb-1.5">Domain</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={localSettings.jiraDomain}
+                          onChange={(e) => handleChange('jiraDomain', e.target.value)}
+                          placeholder="mycompany"
+                          className="flex-1 px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
+                        />
+                        <span className="text-xs text-[var(--text-muted)]">.atlassian.net</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-[var(--text-secondary)] mb-1.5">Project Key</label>
+                      <input
+                        type="text"
+                        value={localSettings.jiraProjectKey}
+                        onChange={(e) => handleChange('jiraProjectKey', e.target.value.toUpperCase())}
+                        placeholder="PROJ"
+                        className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
+                      />
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-[var(--bg-card)] border border-[var(--border)]">
+                      <h4 className="text-xs font-semibold text-[var(--text-primary)] mb-2">Setup Instructions</h4>
+                      <ol className="text-[11px] text-[var(--text-muted)] space-y-1 list-decimal list-inside">
+                        <li>Go to id.atlassian.com/manage-profile/security/api-tokens</li>
+                        <li>Create a new API token</li>
+                        <li>Enter your Atlassian email above</li>
+                        <li>Paste the token in the API Token field</li>
+                        <li>Enter your Jira domain (e.g. "mycompany")</li>
+                        <li>Enter the project key (e.g. "PROJ")</li>
                         <li>Click "Test Connection" to verify</li>
                       </ol>
                     </div>
                   </>
+                )}
+
+                {/* Test connection button */}
+                {localSettings.taskManagerProvider !== 'none' && (
+                  <div>
+                    <button
+                      onClick={testConnection}
+                      disabled={connectionStatus === 'checking'}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--accent)] text-white text-sm hover:opacity-90 transition-opacity disabled:opacity-50"
+                    >
+                      {connectionStatus === 'checking' ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : connectionStatus === 'connected' ? (
+                        <CheckCircle className="w-4 h-4" />
+                      ) : connectionStatus === 'error' ? (
+                        <XCircle className="w-4 h-4" />
+                      ) : null}
+                      Test Connection
+                    </button>
+                    {connectionMessage && (
+                      <p className={cn(
+                        'text-xs mt-2',
+                        connectionStatus === 'connected' ? 'text-[var(--success)]' : 'text-[var(--error)]'
+                      )}>
+                        {connectionMessage}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -480,55 +577,81 @@ export function SettingsView() {
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">Agent Settings</h2>
 
               <div className="space-y-4">
+                {/* Default Agent Provider — dynamic from registry */}
                 <div>
-                  <label className="block text-sm text-[var(--text-secondary)] mb-1.5">Default Copilot Provider</label>
+                  <label className="block text-sm text-[var(--text-secondary)] mb-1.5">Default Agent Provider</label>
                   <select
-                    value={localSettings.defaultCopilotProvider}
-                    onChange={(e) => handleChange('defaultCopilotProvider', e.target.value)}
+                    value={localSettings.defaultAgentProvider}
+                    onChange={(e) => handleChange('defaultAgentProvider', e.target.value)}
                     className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
                   >
-                    <option value="claude">Claude Code</option>
-                    <option value="copilot">GitHub Copilot</option>
+                    {agentProviders.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.displayName}{!p.available ? ' (not installed)' : ''}
+                      </option>
+                    ))}
+                    {agentProviders.length === 0 && (
+                      <>
+                        <option value="claude">Claude Code</option>
+                        <option value="copilot">GitHub Copilot</option>
+                      </>
+                    )}
                   </select>
                   <p className="text-[10px] text-[var(--text-muted)] mt-1">AI provider selected by default when creating new terminals</p>
                 </div>
 
-                {localSettings.defaultCopilotProvider === 'claude' ? (
-                  <div>
-                    <label className="block text-sm text-[var(--text-secondary)] mb-1.5">Default Model (Claude Code)</label>
-                    <select
-                      value={localSettings.defaultModel}
-                      onChange={(e) => handleChange('defaultModel', e.target.value)}
-                      className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
-                    >
-                      <option value="claude-opus-4-6">Claude Opus 4.6</option>
-                      <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
-                      <option value="claude-haiku-4-5">Claude Haiku 4.5</option>
-                    </select>
-                  </div>
-                ) : (
-                  <div>
-                    <label className="block text-sm text-[var(--text-secondary)] mb-1.5">Default Model (GitHub Copilot)</label>
-                    <select
-                      value={localSettings.defaultCopilotModel}
-                      onChange={(e) => handleChange('defaultCopilotModel', e.target.value)}
-                      className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
-                    >
-                      <option value="claude-sonnet-4.5">Claude Sonnet 4.5 (default)</option>
-                      <option value="claude-opus-4.5">Claude Opus 4.5</option>
-                      <option value="claude-haiku-4.5">Claude Haiku 4.5</option>
-                      <option value="claude-sonnet-4">Claude Sonnet 4</option>
-                      <option value="gpt-5.1">GPT-5.1</option>
-                      <option value="gpt-5.1-codex-mini">GPT-5.1-Codex-Mini</option>
-                      <option value="gpt-5.1-codex">GPT-5.1-Codex</option>
-                      <option value="gpt-5">GPT-5</option>
-                      <option value="gpt-5-mini">GPT-5-Mini</option>
-                      <option value="gpt-4.1">GPT-4.1</option>
-                      <option value="gemini-3-pro-preview">Gemini 3 Pro</option>
-                    </select>
-                    <p className="text-[10px] text-[var(--text-muted)] mt-1">You can also switch models at runtime with the /model command</p>
-                  </div>
-                )}
+                {/* Per-agent model selector */}
+                {(() => {
+                  const selectedProvider = agentProviders.find((p) => p.id === localSettings.defaultAgentProvider);
+                  if (!selectedProvider || selectedProvider.models.length === 0) return null;
+                  const agentModels = localSettings.agentModels || {};
+                  const currentModel = agentModels[selectedProvider.id] || selectedProvider.defaultModel;
+                  return (
+                    <div>
+                      <label className="block text-sm text-[var(--text-secondary)] mb-1.5">
+                        Default Model ({selectedProvider.displayName})
+                      </label>
+                      <select
+                        value={currentModel}
+                        onChange={(e) => {
+                          const updated = { ...localSettings.agentModels, [selectedProvider.id]: e.target.value };
+                          handleChange('agentModels', updated);
+                        }}
+                        className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)]"
+                      >
+                        {selectedProvider.models.map((m) => (
+                          <option key={m.id} value={m.id}>{m.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })()}
+
+                {/* Dynamic settings fields from the selected provider */}
+                {(() => {
+                  const selectedProvider = agentProviders.find((p) => p.id === localSettings.defaultAgentProvider);
+                  if (!selectedProvider || selectedProvider.settingsFields.length === 0) return null;
+                  const agentConfig = localSettings.agentConfig || {};
+                  const providerConfig = agentConfig[selectedProvider.id] || {};
+                  return selectedProvider.settingsFields.map((field) => (
+                    <div key={field.key}>
+                      <label className="block text-sm text-[var(--text-secondary)] mb-1.5">{field.label}</label>
+                      <input
+                        type={field.type === 'password' ? 'password' : 'text'}
+                        value={providerConfig[field.key] || ''}
+                        onChange={(e) => {
+                          const updatedConfig = { ...providerConfig, [field.key]: e.target.value };
+                          handleChange('agentConfig', { ...agentConfig, [selectedProvider.id]: updatedConfig });
+                        }}
+                        placeholder={field.placeholder}
+                        className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
+                      />
+                      {field.description && (
+                        <p className="text-[10px] text-[var(--text-muted)] mt-1">{field.description}</p>
+                      )}
+                    </div>
+                  ));
+                })()}
 
                 <div>
                   <label className="block text-sm text-[var(--text-secondary)] mb-1.5">Working Directory</label>

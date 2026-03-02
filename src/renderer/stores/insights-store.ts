@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type {
-  CopilotProvider,
+  AgentProviderId,
   InsightsModel,
   InsightsSession,
   InsightsSessionMeta,
@@ -15,11 +15,11 @@ interface InsightsState {
   sidebarOpen: boolean;
   error: string | null;
   selectedProjectPath: string | null;
-  selectedProvider: CopilotProvider;
+  selectedProvider: AgentProviderId;
 
   loadSessions: () => Promise<void>;
   selectSession: (id: string) => Promise<void>;
-  createSession: (model: InsightsModel, projectPath?: string, provider?: CopilotProvider, copilotModel?: string) => Promise<InsightsSession | null>;
+  createSession: (model: InsightsModel, projectPath?: string, provider?: AgentProviderId, copilotModel?: string) => Promise<InsightsSession | null>;
   deleteSession: (id: string) => Promise<void>;
   renameSession: (id: string, title: string) => Promise<void>;
   sendMessage: (content: string, model?: InsightsModel, copilotModel?: string) => Promise<void>;
@@ -28,7 +28,7 @@ interface InsightsState {
   handleStreamEvent: (event: InsightsStreamEvent) => void;
   clearError: () => void;
   setSelectedProjectPath: (path: string | null) => void;
-  setSelectedProvider: (provider: CopilotProvider) => void;
+  setSelectedProvider: (provider: AgentProviderId) => void;
 }
 
 export const useInsightsStore = create<InsightsState>((set, get) => ({
@@ -70,7 +70,7 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
     }
   },
 
-  createSession: async (model: InsightsModel, projectPath?: string, provider?: CopilotProvider, copilotModel?: string) => {
+  createSession: async (model: InsightsModel, projectPath?: string, provider?: AgentProviderId, copilotModel?: string) => {
     try {
       console.log('[insights] createSession called with provider:', provider, 'copilotModel:', copilotModel);
       const result = await window.electronAPI.insightsCreateSession(model, projectPath, provider, copilotModel);
@@ -185,7 +185,7 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
 
   setSelectedProjectPath: (path: string | null) => set({ selectedProjectPath: path }),
 
-  setSelectedProvider: (provider: CopilotProvider) => {
+  setSelectedProvider: (provider: AgentProviderId) => {
     console.log('[insights] setSelectedProvider:', provider, new Error().stack?.split('\n')[2]?.trim());
     set({ selectedProvider: provider });
   },

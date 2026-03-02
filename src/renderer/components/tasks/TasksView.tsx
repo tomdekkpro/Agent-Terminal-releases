@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { RefreshCw, Search, ExternalLink, AlertCircle, CheckSquare, Filter, X } from 'lucide-react';
+import { RefreshCw, Search, ExternalLink, AlertCircle, CheckSquare, Filter, X, ChevronDown, List } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settings-store';
 import { cn } from '../../../shared/utils';
-import type { ClickUpTask } from '../../../shared/types';
+import type { TaskManagerTask, TaskManagerList } from '../../../shared/types';
 
 type SearchFilters = {
   statuses?: string[];
@@ -10,15 +10,22 @@ type SearchFilters = {
   includeClosed?: boolean;
 };
 
-export function ClickUpView() {
+export function TasksView() {
   const settings = useSettingsStore((s) => s.settings);
-  const [tasks, setTasks] = useState<ClickUpTask[]>([]);
+  const [tasks, setTasks] = useState<TaskManagerTask[]>([]);
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTask, setSelectedTask] = useState<ClickUpTask | null>(null);
+  const [selectedTask, setSelectedTask] = useState<TaskManagerTask | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
+
+  // Lists
+  const [lists, setLists] = useState<TaskManagerList[]>([]);
+  const [selectedListId, setSelectedListId] = useState<string>('');
+  const [listsLoading, setListsLoading] = useState(false);
+  const [showListDropdown, setShowListDropdown] = useState(false);
+  const listDropdownRef = useRef<HTMLDivElement>(null);
 
   // Filters
   const [showFilters, setShowFilters] = useState(false);
@@ -30,15 +37,43 @@ export function ClickUpView() {
   const [availableStatuses, setAvailableStatuses] = useState<{ name: string; color: string }[]>([]);
   const [availableAssignees, setAvailableAssignees] = useState<{ id: string; username: string }[]>([]);
 
+  // Close list dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (listDropdownRef.current && !listDropdownRef.current.contains(e.target as Node)) {
+        setShowListDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // Fetch lists on mount
+  useEffect(() => {
+    if (settings.taskManagerProvider === 'none') return;
+    setListsLoading(true);
+    window.electronAPI.getTaskManagerLists().then((result: any) => {
+      if (result.success && result.data) {
+        setLists(result.data);
+        // Auto-select first list if none selected (or use clickupListId as default)
+        if (!selectedListId && result.data.length > 0) {
+          const defaultId = settings.clickupListId || result.data[0].id;
+          const exists = result.data.some((l: TaskManagerList) => l.id === defaultId);
+          setSelectedListId(exists ? defaultId : result.data[0].id);
+        }
+      }
+    }).finally(() => setListsLoading(false));
+  }, [settings.taskManagerProvider]);
+
   const buildFilters = useCallback((): SearchFilters => ({
     statuses: filterStatuses.length > 0 ? filterStatuses : undefined,
     assignees: filterAssignees.length > 0 ? filterAssignees : undefined,
     includeClosed,
   }), [filterStatuses, filterAssignees, includeClosed]);
 
-  const doSearch = useCallback(async (query: string, filters: SearchFilters) => {
+  const doSearch = useCallback(async (query: string, filters: SearchFilters, listId?: string) => {
     try {
-      const result = await window.electronAPI.searchClickUpTasks(query, filters);
+      const result = await window.electronAPI.searchTaskManagerTasks(query, filters, listId);
       if (result.success) {
         const data = result.data || [];
         setTasks(data);
@@ -47,7 +82,7 @@ export function ClickUpView() {
         const statusMap = new Map<string, string>();
         const assigneeMap = new Map<string, string>();
         for (const t of data) {
-          if (t.status?.status) statusMap.set(t.status.status, t.status.color);
+          if (t.status?.name) statusMap.set(t.status.name, t.status.color);
           for (const a of t.assignees || []) {
             assigneeMap.set(String(a.id), a.username);
           }
@@ -63,16 +98,20 @@ export function ClickUpView() {
   }, []);
 
   const loadTasks = useCallback(async () => {
-    if (!settings.clickupEnabled || !settings.clickupApiKey) return;
+    if (settings.taskManagerProvider === 'none') return;
+    if (!selectedListId) return;
     setLoading(true);
     setError(null);
-    await doSearch(searchQuery, buildFilters());
+    await doSearch(searchQuery, buildFilters(), selectedListId);
     setLoading(false);
-  }, [settings.clickupEnabled, settings.clickupApiKey, searchQuery, buildFilters, doSearch]);
+  }, [settings.taskManagerProvider, searchQuery, buildFilters, doSearch, selectedListId]);
 
+  // Reload tasks when selected list changes
   useEffect(() => {
-    loadTasks();
-  }, [loadTasks]);
+    if (selectedListId) {
+      loadTasks();
+    }
+  }, [selectedListId, loadTasks]);
 
   // Debounced text search
   const handleSearchChange = useCallback((value: string) => {
@@ -82,17 +121,17 @@ export function ClickUpView() {
     const filters = buildFilters();
     searchTimerRef.current = setTimeout(async () => {
       setSearching(true);
-      await doSearch(value, filters);
+      await doSearch(value, filters, selectedListId);
       setSearching(false);
     }, 300);
-  }, [buildFilters, doSearch]);
+  }, [buildFilters, doSearch, selectedListId]);
 
   // Re-fetch when filters change
   useEffect(() => {
-    if (!settings.clickupEnabled || !settings.clickupApiKey) return;
+    if (settings.taskManagerProvider === 'none' || !selectedListId) return;
     const filters = buildFilters();
     setSearching(true);
-    doSearch(searchQuery, filters).finally(() => setSearching(false));
+    doSearch(searchQuery, filters, selectedListId).finally(() => setSearching(false));
   }, [filterStatuses, filterAssignees, includeClosed]);
 
   useEffect(() => {
@@ -123,16 +162,26 @@ export function ClickUpView() {
     );
   }, []);
 
-  if (!settings.clickupEnabled) {
+  const selectedList = lists.find((l) => l.id === selectedListId);
+
+  // Group lists by space for the dropdown
+  const listsBySpace = lists.reduce<Record<string, TaskManagerList[]>>((acc, list) => {
+    const key = list.space || 'Other';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(list);
+    return acc;
+  }, {});
+
+  if (settings.taskManagerProvider === 'none') {
     return (
       <div className="flex flex-col h-full">
         <div className="h-12 bg-[var(--bg-secondary)] border-b border-[var(--border)] flex items-center px-4 drag-region">
-          <h1 className="text-sm font-semibold text-[var(--text-primary)] no-drag">ClickUp Tasks</h1>
+          <h1 className="text-sm font-semibold text-[var(--text-primary)] no-drag">Tasks</h1>
         </div>
         <div className="flex-1 flex flex-col items-center justify-center text-[var(--text-muted)] gap-4">
           <CheckSquare className="w-12 h-12 opacity-30" />
-          <p className="text-sm">ClickUp integration is not enabled</p>
-          <p className="text-xs">Enable it in Settings to connect your tasks</p>
+          <p className="text-sm">No task manager configured</p>
+          <p className="text-xs">Enable one in Settings to connect your tasks</p>
         </div>
       </div>
     );
@@ -142,7 +191,7 @@ export function ClickUpView() {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="h-12 bg-[var(--bg-secondary)] border-b border-[var(--border)] flex items-center px-4 justify-between drag-region">
-        <h1 className="text-sm font-semibold text-[var(--text-primary)] no-drag">ClickUp Tasks</h1>
+        <h1 className="text-sm font-semibold text-[var(--text-primary)] no-drag">Tasks</h1>
         <div className="flex items-center gap-2 no-drag">
           <span className="text-xs text-[var(--text-muted)]">{tasks.length} tasks</span>
           <button
@@ -155,8 +204,67 @@ export function ClickUpView() {
         </div>
       </div>
 
-      {/* Search + filter bar */}
+      {/* List selector + Search + filter bar */}
       <div className="px-4 py-3 bg-[var(--bg-secondary)] border-b border-[var(--border)] space-y-2">
+        {/* List selector */}
+        <div className="relative" ref={listDropdownRef}>
+          <button
+            onClick={() => setShowListDropdown(!showListDropdown)}
+            disabled={listsLoading}
+            className="w-full flex items-center justify-between px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] hover:border-[var(--accent)] transition-colors"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <List className="w-4 h-4 text-[var(--text-muted)] shrink-0" />
+              {listsLoading ? (
+                <span className="text-[var(--text-muted)]">Loading lists...</span>
+              ) : selectedList ? (
+                <span className="truncate">
+                  {selectedList.name}
+                  {selectedList.folder && (
+                    <span className="text-[var(--text-muted)]"> &middot; {selectedList.folder}</span>
+                  )}
+                </span>
+              ) : (
+                <span className="text-[var(--text-muted)]">Select a list...</span>
+              )}
+            </div>
+            <ChevronDown className={cn('w-4 h-4 text-[var(--text-muted)] shrink-0 transition-transform', showListDropdown && 'rotate-180')} />
+          </button>
+
+          {showListDropdown && lists.length > 0 && (
+            <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-64 overflow-y-auto bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-xl">
+              {Object.entries(listsBySpace).map(([space, spaceLists]) => (
+                <div key={space}>
+                  {Object.keys(listsBySpace).length > 1 && (
+                    <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-[var(--text-muted)] bg-[var(--bg-secondary)] sticky top-0">
+                      {space}
+                    </div>
+                  )}
+                  {spaceLists.map((list) => (
+                    <button
+                      key={list.id}
+                      onClick={() => {
+                        setSelectedListId(list.id);
+                        setShowListDropdown(false);
+                      }}
+                      className={cn(
+                        'w-full text-left px-3 py-2 text-sm transition-colors hover:bg-[var(--bg-tertiary)]',
+                        list.id === selectedListId && 'bg-[var(--accent)]/10 text-[var(--accent)]'
+                      )}
+                    >
+                      <span>{list.name}</span>
+                      {list.folder && (
+                        <span className="text-[10px] text-[var(--text-muted)] ml-2">{list.folder}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Search + filter */}
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             {searching ? (
@@ -274,6 +382,11 @@ export function ClickUpView() {
           <div className="flex items-center justify-center h-32">
             <RefreshCw className="w-5 h-5 animate-spin text-[var(--text-muted)]" />
           </div>
+        ) : !selectedListId ? (
+          <div className="flex flex-col items-center justify-center h-32 text-[var(--text-muted)]">
+            <List className="w-8 h-8 opacity-30 mb-2" />
+            <p className="text-sm">Select a list to view tasks</p>
+          </div>
         ) : tasks.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 text-[var(--text-muted)]">
             <p className="text-sm">No tasks found</p>
@@ -297,9 +410,9 @@ export function ClickUpView() {
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      {task.custom_id && (
+                      {task.customId && (
                         <span className="text-[10px] font-mono text-[var(--text-muted)] shrink-0">
-                          {task.custom_id}
+                          {task.customId}
                         </span>
                       )}
                       <span className="text-sm text-[var(--text-primary)] truncate">{task.name}</span>
@@ -309,11 +422,11 @@ export function ClickUpView() {
                         backgroundColor: `${task.status.color}20`,
                         color: task.status.color,
                       }}>
-                        {task.status.status}
+                        {task.status.name}
                       </span>
                       {task.priority && (
                         <span className="text-[10px] text-[var(--text-muted)]">
-                          P{task.priority.id}
+                          {task.priority.name}
                         </span>
                       )}
                       {task.assignees.length > 0 && (
@@ -336,10 +449,10 @@ export function ClickUpView() {
                 </div>
 
                 {/* Expanded task detail */}
-                {selectedTask?.id === task.id && task.text_content && (
+                {selectedTask?.id === task.id && task.description && (
                   <div className="mt-3 pt-3 border-t border-[var(--border)]">
                     <p className="text-xs text-[var(--text-secondary)] whitespace-pre-wrap line-clamp-6">
-                      {task.text_content}
+                      {task.description}
                     </p>
                     {task.tags.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-2">
@@ -347,7 +460,7 @@ export function ClickUpView() {
                           <span
                             key={tag.name}
                             className="text-[10px] px-1.5 py-0.5 rounded"
-                            style={{ backgroundColor: tag.tag_bg, color: tag.tag_fg }}
+                            style={{ backgroundColor: tag.bgColor, color: tag.fgColor }}
                           >
                             {tag.name}
                           </span>

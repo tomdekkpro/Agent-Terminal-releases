@@ -1,24 +1,12 @@
 import * as os from 'os';
-import { execSync } from 'child_process';
 import { readdirSync, statSync, existsSync } from 'fs';
 import { join } from 'path';
-import type { TerminalCreateOptions } from '../../shared/types';
+import type { TerminalCreateOptions, AgentProviderId, AgentInvokeOptions } from '../../shared/types';
 import type { TerminalProcess, WindowGetter, TerminalOperationResult } from './types';
 import * as PtyManager from './pty-manager';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { debugLog, debugError } from '../../shared/utils';
-import { extractCostFromOutput } from '../usage/usage-service';
-
-/** Check if a CLI command is available on the system PATH */
-function isCommandAvailable(command: string): boolean {
-  try {
-    const check = process.platform === 'win32' ? `where ${command}` : `which ${command}`;
-    execSync(check, { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { agentRegistry } from '../ipc/providers/agent-registry';
 
 /** Encode a project path to match Claude Code's project directory naming */
 function encodeProjectPath(cwd: string): string {
@@ -39,10 +27,8 @@ function buildShellCommand(
     return { cdCmd: `cd "${dir}"`, clearCmd: 'cls', separator: '; ' };
   }
   if (shellType === 'bash') {
-    // Git Bash / bash.exe on Windows: POSIX-style cd, no /d flag needed
     return { cdCmd: `cd "${dir}"`, clearCmd: 'clear', separator: ' && ' };
   }
-  // cmd.exe (default): use /d to handle drive-letter changes
   return { cdCmd: `cd /d "${dir}"`, clearCmd: 'cls', separator: ' && ' };
 }
 
@@ -85,7 +71,7 @@ export class TerminalManager {
       const terminal: TerminalProcess = {
         id,
         pty: ptyProcess,
-        isClaudeMode: false,
+        isAgentMode: false,
         hasExited: false,
         cwd: cwd || os.homedir(),
         outputBuffer: '',
@@ -152,116 +138,121 @@ export class TerminalManager {
     return PtyManager.resizePty(terminal, cols, rows);
   }
 
-  invokeClaude(id: string, cwd?: string, skipPermissions?: boolean, model?: string): { success: boolean; error?: string } {
+  // ─── Unified Agent Invoke / Resume ──────────────────────────────
+
+  invokeAgent(
+    id: string,
+    agentId: AgentProviderId,
+    options: AgentInvokeOptions = {},
+  ): { success: boolean; error?: string } {
     const terminal = this.terminals.get(id);
     if (!terminal) return { success: false, error: 'Terminal not found' };
 
-    if (!isCommandAvailable('claude')) {
-      return { success: false, error: 'Claude Code CLI is not installed. Install it with: npm install -g @anthropic-ai/claude-code' };
+    const provider = agentRegistry.get(agentId);
+    if (!provider) return { success: false, error: `Unknown agent provider: ${agentId}` };
+
+    if (!provider.isAvailable()) {
+      return { success: false, error: `${provider.displayName} CLI is not installed. ${provider.installHint}` };
     }
 
+    terminal.isAgentMode = true;
+    terminal.agentProvider = agentId;
+    // Keep deprecated aliases in sync
     terminal.isClaudeMode = true;
-    terminal.copilotProvider = 'claude';
-    const dir = cwd || terminal.cwd;
+    terminal.copilotProvider = agentId;
+
+    const dir = options.cwd || terminal.cwd;
+    terminal.agentCwd = dir;
     terminal.claudeCwd = dir;
 
-    // Snapshot existing sessions before Claude starts (for session ID detection)
-    const claudeDir = getClaudeProjectDir(dir);
-    const preSnapshot = getSessionSnapshot(claudeDir);
+    // Claude-specific: snapshot sessions for detection
+    let preSnapshot: Map<string, number> | undefined;
+    if (agentId === 'claude') {
+      const claudeDir = getClaudeProjectDir(dir);
+      preSnapshot = getSessionSnapshot(claudeDir);
+    }
 
-    // Build cd + clear + claude command with correct separator for each shell type
     const { cdCmd, clearCmd, separator } = buildShellCommand(terminal.shellType, dir);
-    let claudeCmd = skipPermissions ? 'claude --dangerously-skip-permissions' : 'claude';
-    if (model) claudeCmd += ` --model ${model}`;
-    const command = `${cdCmd}${separator}${clearCmd}${separator}${claudeCmd}\r`;
+    const agentCmd = provider.buildInvokeCommand(options);
+    const command = `${cdCmd}${separator}${clearCmd}${separator}${agentCmd}\r`;
     PtyManager.writeToPty(terminal, command);
 
     const win = this.getWindow();
     if (win && !win.isDestroyed()) {
-      win.webContents.send(IPC_CHANNELS.TERMINAL_TITLE_CHANGE, id, 'Claude Code');
+      win.webContents.send(IPC_CHANNELS.TERMINAL_TITLE_CHANGE, id, provider.displayName);
     }
 
-    // Detect which session Claude opened/created
-    this.detectSessionId(terminal, claudeDir, preSnapshot);
+    // Claude session detection
+    if (agentId === 'claude' && preSnapshot) {
+      const claudeDir = getClaudeProjectDir(dir);
+      this.detectAgentSession(terminal, claudeDir, preSnapshot);
+    }
+
     return { success: true };
+  }
+
+  resumeAgent(
+    id: string,
+    agentId: AgentProviderId,
+    options: AgentInvokeOptions = {},
+  ): void {
+    const terminal = this.terminals.get(id);
+    if (!terminal) return;
+
+    const provider = agentRegistry.get(agentId);
+    if (!provider) return;
+
+    terminal.isAgentMode = true;
+    terminal.agentProvider = agentId;
+    terminal.isClaudeMode = true;
+    terminal.copilotProvider = agentId;
+
+    const dir = options.cwd || terminal.agentCwd || terminal.cwd;
+    terminal.agentCwd = dir;
+    terminal.claudeCwd = dir;
+
+    const { cdCmd, clearCmd, separator } = buildShellCommand(terminal.shellType, dir);
+    const agentCmd = provider.buildResumeCommand(options);
+    const command = `${cdCmd}${separator}${clearCmd}${separator}${agentCmd}\r`;
+    PtyManager.writeToPty(terminal, command);
+
+    const win = this.getWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(IPC_CHANNELS.TERMINAL_TITLE_CHANGE, id, provider.displayName);
+    }
+  }
+
+  // ─── Legacy Convenience Wrappers ──────────────────────────────
+
+  invokeClaude(id: string, cwd?: string, skipPermissions?: boolean, model?: string): { success: boolean; error?: string } {
+    return this.invokeAgent(id, 'claude', { cwd, skipPermissions, model });
   }
 
   resumeClaude(id: string, sessionId?: string, cwd?: string): void {
-    const terminal = this.terminals.get(id);
-    if (!terminal) return;
-
-    terminal.isClaudeMode = true;
-    const dir = cwd || terminal.claudeCwd || terminal.cwd;
-    terminal.claudeCwd = dir;
-
-    // Build resume command with clear to hide the shell echo before Claude starts
-    const { cdCmd, clearCmd, separator } = buildShellCommand(terminal.shellType, dir);
-    const claudeCmd = sessionId
-      ? `claude --resume "${sessionId}"`
-      : 'claude --continue';
-    const command = `${cdCmd}${separator}${clearCmd}${separator}${claudeCmd}\r`;
-    PtyManager.writeToPty(terminal, command);
-
-    const win = this.getWindow();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send(IPC_CHANNELS.TERMINAL_TITLE_CHANGE, id, 'Claude Code');
-    }
+    this.resumeAgent(id, 'claude', { sessionId, cwd });
   }
 
   invokeCopilot(id: string, cwd?: string, model?: string): { success: boolean; error?: string } {
-    const terminal = this.terminals.get(id);
-    if (!terminal) return { success: false, error: 'Terminal not found' };
-
-    if (!isCommandAvailable('copilot')) {
-      return { success: false, error: 'GitHub Copilot CLI is not installed. Install it with: npm install -g @github/copilot' };
-    }
-
-    terminal.isClaudeMode = true;
-    terminal.copilotProvider = 'copilot';
-    const dir = cwd || terminal.cwd;
-
-    const { cdCmd, clearCmd, separator } = buildShellCommand(terminal.shellType, dir);
-    const copilotCmd = model ? `copilot --model ${model}` : 'copilot';
-    const command = `${cdCmd}${separator}${clearCmd}${separator}${copilotCmd}\r`;
-    PtyManager.writeToPty(terminal, command);
-
-    const win = this.getWindow();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send(IPC_CHANNELS.TERMINAL_TITLE_CHANGE, id, 'GitHub Copilot');
-    }
-    return { success: true };
+    return this.invokeAgent(id, 'copilot', { cwd, model });
   }
 
   resumeCopilot(id: string, cwd?: string): void {
-    const terminal = this.terminals.get(id);
-    if (!terminal) return;
-
-    terminal.isClaudeMode = true;
-    terminal.copilotProvider = 'copilot';
-    const dir = cwd || terminal.cwd;
-
-    const { cdCmd, clearCmd, separator } = buildShellCommand(terminal.shellType, dir);
-    const command = `${cdCmd}${separator}${clearCmd}${separator}copilot --continue\r`;
-    PtyManager.writeToPty(terminal, command);
-
-    const win = this.getWindow();
-    if (win && !win.isDestroyed()) {
-      win.webContents.send(IPC_CHANNELS.TERMINAL_TITLE_CHANGE, id, 'GitHub Copilot');
-    }
+    this.resumeAgent(id, 'copilot', { cwd });
   }
 
-  /** Poll the Claude project directory to detect which session file was created/modified */
-  private detectSessionId(
+  // ─── Session Detection ──────────────────────────────────────
+
+  private detectAgentSession(
     terminal: TerminalProcess,
     claudeDir: string,
     preSnapshot: Map<string, number>,
   ): void {
     let attempts = 0;
-    const MAX_ATTEMPTS = 45; // ~47s total (2s initial delay + 1s per poll)
+    const MAX_ATTEMPTS = 45;
 
     const poll = () => {
       attempts++;
-      if (attempts > MAX_ATTEMPTS || terminal.hasExited || terminal.claudeSessionId) return;
+      if (attempts > MAX_ATTEMPTS || terminal.hasExited || terminal.agentSessionId) return;
 
       try {
         if (!existsSync(claudeDir)) {
@@ -274,14 +265,16 @@ export class TerminalManager {
           const mtime = statSync(join(claudeDir, f)).mtimeMs;
           const prevMtime = preSnapshot.get(f);
 
-          // New file or file modified since snapshot
           if (prevMtime === undefined || mtime > prevMtime + 500) {
-            terminal.claudeSessionId = f.replace('.jsonl', '');
-            debugLog('[TerminalManager] Detected Claude session:', terminal.claudeSessionId, 'for terminal:', terminal.id);
-            // Notify renderer so it can save in store
+            const sessionId = f.replace('.jsonl', '');
+            terminal.agentSessionId = sessionId;
+            terminal.claudeSessionId = sessionId;
+            debugLog('[TerminalManager] Detected agent session:', sessionId, 'for terminal:', terminal.id);
             const win = this.getWindow();
             if (win && !win.isDestroyed()) {
-              win.webContents.send(IPC_CHANNELS.TERMINAL_CLAUDE_SESSION, terminal.id, terminal.claudeSessionId);
+              win.webContents.send(IPC_CHANNELS.TERMINAL_AGENT_SESSION, terminal.id, sessionId);
+              // Also fire legacy channel
+              win.webContents.send(IPC_CHANNELS.TERMINAL_CLAUDE_SESSION, terminal.id, sessionId);
             }
             return;
           }
@@ -293,6 +286,8 @@ export class TerminalManager {
 
     setTimeout(poll, 2000);
   }
+
+  // ─── Misc ──────────────────────────────────────────────────
 
   setTitle(id: string, title: string): void {
     const terminal = this.terminals.get(id);
@@ -316,34 +311,42 @@ export class TerminalManager {
   }
 
   isClaudeMode(id: string): boolean {
-    return this.terminals.get(id)?.isClaudeMode ?? false;
+    return this.terminals.get(id)?.isAgentMode ?? false;
   }
 
-  private handleTerminalData(terminal: TerminalProcess, data: string): void {
-    if (terminal.isClaudeMode && terminal.copilotProvider !== 'copilot') {
-      // Detect Claude exit
-      const exitPatterns = [/Goodbye!?\s*$/im, /Session ended/i];
-      if (exitPatterns.some((p) => p.test(data))) {
-        terminal.isClaudeMode = false;
-        const win = this.getWindow();
-        if (win && !win.isDestroyed()) {
-          win.webContents.send(IPC_CHANNELS.TERMINAL_CLAUDE_BUSY, terminal.id, false);
-        }
-      }
+  // ─── Terminal Data Handler ─────────────────────────────────
 
-      // Extract cost/token data from Claude output
-      const costData = extractCostFromOutput(data);
-      if (costData) {
-        const win = this.getWindow();
-        if (win && !win.isDestroyed()) {
-          win.webContents.send(IPC_CHANNELS.USAGE_COST_UPDATE, {
-            terminalId: terminal.id,
-            cost: costData.cost,
-            inputTokens: costData.inputTokens,
-            outputTokens: costData.outputTokens,
-            timestamp: new Date(),
-          });
-        }
+  private handleTerminalData(terminal: TerminalProcess, data: string): void {
+    if (!terminal.isAgentMode) return;
+
+    const providerId = terminal.agentProvider;
+    if (!providerId) return;
+
+    const provider = agentRegistry.get(providerId);
+    if (!provider) return;
+
+    // Detect exit
+    if (provider.detectExit(data)) {
+      terminal.isAgentMode = false;
+      terminal.isClaudeMode = false;
+      const win = this.getWindow();
+      if (win && !win.isDestroyed()) {
+        win.webContents.send(IPC_CHANNELS.TERMINAL_AGENT_BUSY, terminal.id, false);
+        win.webContents.send(IPC_CHANNELS.TERMINAL_CLAUDE_BUSY, terminal.id, false);
+      }
+    }
+
+    // Extract usage data
+    const usageData = provider.parseUsageFromOutput(data);
+    if (usageData) {
+      const win = this.getWindow();
+      if (win && !win.isDestroyed()) {
+        win.webContents.send(IPC_CHANNELS.USAGE_COST_UPDATE, {
+          terminalId: terminal.id,
+          provider: providerId,
+          ...usageData,
+          timestamp: new Date(),
+        });
       }
     }
   }

@@ -7,6 +7,11 @@ const electronAPI = {
   destroyTerminal: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_DESTROY, id),
   sendTerminalInput: (id: string, data: string) => ipcRenderer.send(IPC_CHANNELS.TERMINAL_WRITE, id, data),
   resizeTerminal: (id: string, cols: number, rows: number) => ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESIZE, id, cols, rows),
+  // Unified agent API
+  invokeAgent: (id: string, agentId: string, options?: any) => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_INVOKE_AGENT, id, agentId, options),
+  resumeAgent: (id: string, agentId: string, options?: any) => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_RESUME_AGENT, id, agentId, options),
+  getAgentProviders: () => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_AGENT_LIST),
+  // Legacy agent API (delegates to unified)
   invokeClaude: (id: string, cwd?: string, skipPermissions?: boolean, model?: string) => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_INVOKE_CLAUDE, id, cwd, skipPermissions, model),
   invokeCopilot: (id: string, cwd?: string, model?: string) => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_INVOKE_COPILOT, id, cwd, model),
   resumeCopilot: (id: string, cwd?: string) => ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_RESUME_COPILOT, id, cwd),
@@ -32,6 +37,18 @@ const electronAPI = {
     ipcRenderer.on(IPC_CHANNELS.TERMINAL_TITLE_CHANGE, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_TITLE_CHANGE, handler);
   },
+  // Agent-generic event listeners
+  onTerminalAgentBusy: (callback: (id: string, isBusy: boolean) => void) => {
+    const handler = (_event: any, id: string, isBusy: boolean) => callback(id, isBusy);
+    ipcRenderer.on(IPC_CHANNELS.TERMINAL_AGENT_BUSY, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_AGENT_BUSY, handler);
+  },
+  onTerminalAgentSession: (callback: (id: string, sessionId: string) => void) => {
+    const handler = (_event: any, id: string, sessionId: string) => callback(id, sessionId);
+    ipcRenderer.on(IPC_CHANNELS.TERMINAL_AGENT_SESSION, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_AGENT_SESSION, handler);
+  },
+  // Legacy event listeners (still fired for backward compat)
   onTerminalClaudeBusy: (callback: (id: string, isBusy: boolean) => void) => {
     const handler = (_event: any, id: string, isBusy: boolean) => callback(id, isBusy);
     ipcRenderer.on(IPC_CHANNELS.TERMINAL_CLAUDE_BUSY, handler);
@@ -43,18 +60,19 @@ const electronAPI = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_CLAUDE_SESSION, handler);
   },
 
-  // ClickUp
-  checkClickUpConnection: () => ipcRenderer.invoke(IPC_CHANNELS.CLICKUP_CHECK_CONNECTION),
-  getClickUpTasks: (listId?: string) => ipcRenderer.invoke(IPC_CHANNELS.CLICKUP_GET_TASKS, listId),
-  searchClickUpTasks: (query: string, filters?: { statuses?: string[]; assignees?: string[]; includeClosed?: boolean }, listId?: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.CLICKUP_SEARCH_TASKS, query, filters, listId),
-  getClickUpTask: (taskId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLICKUP_GET_TASK, taskId),
-  createClickUpTask: (listId: string, data: any) => ipcRenderer.invoke(IPC_CHANNELS.CLICKUP_CREATE_TASK, listId, data),
-  postClickUpComment: (taskId: string, comment: string) => ipcRenderer.invoke(IPC_CHANNELS.CLICKUP_POST_COMMENT, taskId, comment),
-  updateClickUpStatus: (taskId: string, status: string) => ipcRenderer.invoke(IPC_CHANNELS.CLICKUP_UPDATE_STATUS, taskId, status),
-  postClickUpTimeEntry: (taskId: string, startMs: number, durationMs: number, description?: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.CLICKUP_POST_TIME_ENTRY, taskId, startMs, durationMs, description),
-  getClickUpTimeEntries: (taskId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLICKUP_GET_TIME_ENTRIES, taskId),
+  // Task Manager
+  checkTaskManagerConnection: () => ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_CHECK_CONNECTION),
+  getTaskManagerLists: () => ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_GET_LISTS),
+  getTaskManagerTasks: (listId?: string) => ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_GET_TASKS, listId),
+  searchTaskManagerTasks: (query: string, filters?: { statuses?: string[]; assignees?: string[]; includeClosed?: boolean }, listId?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_SEARCH_TASKS, query, filters, listId),
+  getTaskManagerTask: (taskId: string) => ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_GET_TASK, taskId),
+  createTaskManagerTask: (listId: string, data: any) => ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_CREATE_TASK, listId, data),
+  postTaskComment: (taskId: string, comment: string) => ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_POST_COMMENT, taskId, comment),
+  updateTaskStatus: (taskId: string, status: string) => ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_UPDATE_STATUS, taskId, status),
+  postTaskTimeEntry: (taskId: string, startMs: number, durationMs: number, description?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_POST_TIME_ENTRY, taskId, startMs, durationMs, description),
+  getTaskTimeEntries: (taskId: string) => ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_GET_TIME_ENTRIES, taskId),
 
   // Usage Monitor
   requestUsageUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.USAGE_REQUEST),
@@ -67,6 +85,12 @@ const electronAPI = {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(IPC_CHANNELS.USAGE_COST_UPDATE, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.USAGE_COST_UPDATE, handler);
+  },
+  requestCopilotUsageUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.COPILOT_USAGE_REQUEST),
+  onCopilotUsageUpdated: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.COPILOT_USAGE_UPDATED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.COPILOT_USAGE_UPDATED, handler);
   },
 
   // Projects

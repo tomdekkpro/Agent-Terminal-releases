@@ -8,7 +8,7 @@ import { useSettingsStore } from '../../stores/settings-store';
 import { ChatMessage } from './ChatMessage';
 import { ModelSelector } from './ModelSelector';
 import { SessionSidebar } from './SessionSidebar';
-import type { CopilotProvider, InsightsModel, InsightsMessage } from '../../../shared/types';
+import type { AgentProviderId, AgentProviderMeta, InsightsModel, InsightsMessage } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
 
 const QUICK_PROMPTS = [
@@ -74,38 +74,54 @@ export function InsightsView() {
 
   const projects = useProjectStore((s) => s.projects);
   const activeProjectId = useProjectStore((s) => s.activeProjectId);
-  const settingsProvider = useSettingsStore((s) => s.settings.defaultCopilotProvider);
-  const settingsCopilotModel = useSettingsStore((s) => s.settings.defaultCopilotModel);
+  const settingsProvider = useSettingsStore((s) => s.settings.defaultAgentProvider) || 'claude';
+  const settingsAgentModels = useSettingsStore((s) => s.settings.agentModels) || {};
 
   const [input, setInput] = useState('');
-  const [model, setModel] = useState<InsightsModel>('sonnet');
-  const [copilotModel, setCopilotModel] = useState(settingsCopilotModel || 'claude-sonnet-4.5');
+  const [selectedModel, setSelectedModel] = useState('');
+  const [agentProviders, setAgentProviders] = useState<AgentProviderMeta[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Load agent providers on mount
+  useEffect(() => {
+    window.electronAPI.getAgentProviders?.()
+      .then((result: any) => {
+        if (result.success && result.data) setAgentProviders(result.data);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Derive current provider meta and models
+  const currentProviderMeta = agentProviders.find((p) => p.id === selectedProvider);
+  const currentModels = currentProviderMeta?.models || [];
+
+  // Sync selected model when provider changes or providers load
+  useEffect(() => {
+    if (!currentProviderMeta) return;
+    const savedModel = settingsAgentModels[currentProviderMeta.id];
+    if (savedModel && currentModels.some((m) => m.id === savedModel)) {
+      setSelectedModel(savedModel);
+    } else {
+      setSelectedModel(currentProviderMeta.defaultModel);
+    }
+  }, [selectedProvider, currentProviderMeta, currentModels, settingsAgentModels]);
 
   // Sync provider from active session; on mount with no session, use settings default
   const prevSessionIdRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     const currentId = activeSession?.id ?? null;
-    console.log('[insights] provider sync effect — prevId:', prevSessionIdRef.current, 'currentId:', currentId, 'session.provider:', activeSession?.provider, 'settingsProvider:', settingsProvider);
     if (prevSessionIdRef.current === undefined) {
-      // First mount — sync from session or fall back to settings
       prevSessionIdRef.current = currentId;
       if (activeSession?.provider) {
-        console.log('[insights] first mount: sync from session provider:', activeSession.provider);
         setSelectedProvider(activeSession.provider);
       } else if (!activeSession) {
-        console.log('[insights] first mount: no session, using settings:', settingsProvider);
-        setSelectedProvider(settingsProvider);
+        setSelectedProvider(settingsProvider as AgentProviderId);
       }
     } else if (currentId !== prevSessionIdRef.current) {
-      // Session changed — sync provider from new session
       prevSessionIdRef.current = currentId;
       if (activeSession?.provider) {
-        console.log('[insights] session changed: sync provider:', activeSession.provider);
         setSelectedProvider(activeSession.provider);
-      } else {
-        console.log('[insights] session changed: no provider on session, keeping current');
       }
     }
   }, [activeSession, settingsProvider, setSelectedProvider]);
@@ -133,12 +149,9 @@ export function InsightsView() {
   // Sync model from active session
   useEffect(() => {
     if (activeSession?.model) {
-      setModel(activeSession.model);
+      setSelectedModel(activeSession.copilotModel || activeSession.model);
     }
-    if (activeSession) {
-      setCopilotModel(activeSession.copilotModel || settingsCopilotModel || 'claude-sonnet-4.5');
-    }
-  }, [activeSession?.model, activeSession?.copilotModel, settingsCopilotModel]);
+  }, [activeSession?.model, activeSession?.copilotModel]);
 
   const handleSend = useCallback(
     async (content: string) => {
@@ -146,34 +159,28 @@ export function InsightsView() {
       if (!text || isStreaming) return;
       setInput('');
 
-      // Read provider from store at execution time to avoid stale closure
       const currentProvider = useInsightsStore.getState().selectedProvider;
-      console.log('[insights] handleSend: currentProvider:', currentProvider, 'activeSession:', !!activeSession);
+      // For Claude, map to InsightsModel; for others pass the model id as copilotModel
+      const isClaudeProvider = currentProvider === 'claude';
+      const insightsModel: InsightsModel = isClaudeProvider ? (selectedModel as InsightsModel) || 'sonnet' : 'sonnet';
+      const agentModel = !isClaudeProvider ? selectedModel : undefined;
 
       if (!activeSession) {
         const session = await createSession(
-          model,
+          insightsModel,
           selectedProjectPath ?? undefined,
           currentProvider,
-          currentProvider === 'copilot' ? copilotModel : undefined,
+          agentModel,
         );
         if (!session) return;
         const storeState = useInsightsStore.getState();
-        storeState.sendMessage(
-          text,
-          model,
-          storeState.selectedProvider === 'copilot' ? copilotModel : undefined,
-        );
+        storeState.sendMessage(text, insightsModel, agentModel);
         return;
       }
 
-      sendMessage(
-        text,
-        model,
-        currentProvider === 'copilot' ? copilotModel : undefined,
-      );
+      sendMessage(text, insightsModel, agentModel);
     },
-    [activeSession, isStreaming, model, copilotModel, selectedProjectPath, createSession, sendMessage],
+    [activeSession, isStreaming, selectedModel, selectedProjectPath, createSession, sendMessage],
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -194,15 +201,18 @@ export function InsightsView() {
 
   const handleNewChat = async () => {
     const currentProvider = useInsightsStore.getState().selectedProvider;
+    const isClaudeProvider = currentProvider === 'claude';
+    const insightsModel: InsightsModel = isClaudeProvider ? (selectedModel as InsightsModel) || 'sonnet' : 'sonnet';
+    const agentModel = !isClaudeProvider ? selectedModel : undefined;
     await createSession(
-      model,
+      insightsModel,
       selectedProjectPath ?? undefined,
       currentProvider,
-      currentProvider === 'copilot' ? copilotModel : undefined,
+      agentModel,
     );
   };
 
-  const handleProviderChange = (provider: CopilotProvider) => {
+  const handleProviderChange = (provider: AgentProviderId) => {
     setSelectedProvider(provider);
   };
 
@@ -211,7 +221,7 @@ export function InsightsView() {
   // Determine if provider is locked (active session has messages)
   const providerLocked = !!activeSession && messages.length > 0;
 
-  const providerLabel = selectedProvider === 'copilot' ? 'GitHub Copilot' : 'Claude';
+  const providerLabel = currentProviderMeta?.displayName || selectedProvider;
 
   return (
     <div className="flex h-full">
@@ -267,21 +277,29 @@ export function InsightsView() {
             {/* Provider picker */}
             <select
               value={selectedProvider}
-              onChange={(e) => handleProviderChange(e.target.value as CopilotProvider)}
+              onChange={(e) => handleProviderChange(e.target.value as AgentProviderId)}
               disabled={isStreaming || providerLocked}
               className="text-[11px] bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border)] rounded-md px-2 py-1 outline-none focus:border-[var(--accent)] disabled:opacity-50 cursor-pointer"
               title={providerLocked ? 'Provider is locked for this session' : 'Select AI provider'}
             >
-              <option value="claude">Claude Code</option>
-              <option value="copilot">GitHub Copilot</option>
+              {agentProviders.length > 0 ? (
+                agentProviders.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.displayName}{!p.available ? ' (not installed)' : ''}
+                  </option>
+                ))
+              ) : (
+                <>
+                  <option value="claude">Claude Code</option>
+                  <option value="copilot">GitHub Copilot</option>
+                </>
+              )}
             </select>
             {/* Model selector */}
             <ModelSelector
-              provider={selectedProvider}
-              value={model}
-              copilotValue={copilotModel}
-              onChange={setModel}
-              onCopilotChange={setCopilotModel}
+              models={currentModels}
+              value={selectedModel}
+              onChange={setSelectedModel}
               disabled={isStreaming}
             />
           </div>
@@ -308,7 +326,7 @@ export function InsightsView() {
                 </div>
                 <h2 className="text-lg font-medium text-[var(--text-primary)]">Start a conversation</h2>
                 <p className="text-sm text-[var(--text-muted)] text-center max-w-md">
-                  Ask questions about your code, get suggestions, or explore ideas with {selectedProvider === 'copilot' ? 'GitHub Copilot' : 'Claude'}.
+                  Ask questions about your code, get suggestions, or explore ideas with {providerLabel}.
                 </p>
               </div>
 

@@ -1,19 +1,27 @@
 import type * as pty from '@lydell/node-pty';
 import type { BrowserWindow } from 'electron';
-import type { WindowsShellType } from '../../shared/types';
+import type { WindowsShellType, AgentProviderId } from '../../shared/types';
 
 export interface TerminalProcess {
   id: string;
   pty: pty.IPty;
-  isClaudeMode: boolean;
+  isAgentMode: boolean;
   cwd: string;
-  claudeSessionId?: string;
-  claudeCwd?: string;
+  agentSessionId?: string;
+  agentCwd?: string;
+  agentProvider?: AgentProviderId;
   outputBuffer: string;
   title: string;
-  copilotProvider?: 'claude' | 'copilot';
   shellType?: WindowsShellType;
   hasExited?: boolean;
+  /** @deprecated Use isAgentMode */
+  isClaudeMode?: boolean;
+  /** @deprecated Use agentSessionId */
+  claudeSessionId?: string;
+  /** @deprecated Use agentCwd */
+  claudeCwd?: string;
+  /** @deprecated Use agentProvider */
+  copilotProvider?: AgentProviderId;
 }
 
 export type WindowGetter = () => BrowserWindow | null;

@@ -1,6 +1,7 @@
 import { useCallback, useState, useRef, useEffect } from 'react';
 import { FolderOpen, Plus, X, ChevronDown, GripVertical } from 'lucide-react';
 import { useProjectStore } from '../../stores/project-store';
+import { useTerminalStore } from '../../stores/terminal-store';
 import { cn } from '../../../shared/utils';
 
 export function ProjectTabBar() {
@@ -59,6 +60,14 @@ export function ProjectTabBar() {
   const handleCloseTab = useCallback(
     (e: React.MouseEvent, projectId: string) => {
       e.stopPropagation();
+      // Shut down all active terminals for this project to free memory
+      const terminals = useTerminalStore.getState().getTerminalsByProject(projectId);
+      for (const t of terminals) {
+        if (t.status !== 'exited') {
+          window.electronAPI.destroyTerminal(t.id).catch(() => {});
+        }
+        useTerminalStore.getState().removeTerminal(t.id);
+      }
       closeProjectTab(projectId);
     },
     [closeProjectTab]
@@ -75,6 +84,14 @@ export function ProjectTabBar() {
   const handleRemoveProject = useCallback(
     (e: React.MouseEvent, projectId: string) => {
       e.stopPropagation();
+      // Shut down all active terminals for this project to free memory
+      const terminals = useTerminalStore.getState().getTerminalsByProject(projectId);
+      for (const t of terminals) {
+        if (t.status !== 'exited') {
+          window.electronAPI.destroyTerminal(t.id).catch(() => {});
+        }
+        useTerminalStore.getState().removeTerminal(t.id);
+      }
       removeProject(projectId);
     },
     [removeProject]

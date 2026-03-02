@@ -1,0 +1,146 @@
+import { execSync } from 'child_process';
+import type { IAgentProvider } from '../agent-types';
+import type {
+  AgentCapabilities,
+  AgentModelOption,
+  AgentInvokeOptions,
+  AgentSettingsField,
+  AgentUsageData,
+  InsightsMessage,
+  InsightsModel,
+} from '../../../../shared/types';
+
+const COST_PATTERN = /(?:Total )?Cost:?\s*\$([0-9.]+)/i;
+const INPUT_TOKENS_PATTERN = /(?:Input tokens|Tokens in):?\s*([0-9,]+)/i;
+const OUTPUT_TOKENS_PATTERN = /(?:Output tokens|Tokens out):?\s*([0-9,]+)/i;
+const EXIT_PATTERNS = [/Goodbye!?\s*$/im, /Session ended/i];
+
+const INSIGHTS_MODEL_MAP: Record<string, string> = {
+  opus: 'claude-opus-4-6',
+  sonnet: 'claude-sonnet-4-6',
+  haiku: 'claude-haiku-4-5-20251001',
+};
+
+export class ClaudeAgentProvider implements IAgentProvider {
+  readonly id = 'claude' as const;
+  readonly displayName = 'Claude Code';
+  readonly command = 'claude';
+  readonly iconName = 'Bot';
+  readonly color = '#6366f1';
+  readonly installHint = 'Install with: npm install -g @anthropic-ai/claude-code';
+  readonly capabilities: AgentCapabilities = {
+    resume: true,
+    continue: true,
+    yolo: true,
+    sessionDetection: true,
+    remoteControl: true,
+    insights: true,
+  };
+
+  isAvailable(): boolean {
+    try {
+      const check = process.platform === 'win32' ? `where ${this.command}` : `which ${this.command}`;
+      execSync(check, { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  buildInvokeCommand(options: AgentInvokeOptions): string {
+    let cmd = this.command;
+    if (options.skipPermissions) cmd += ' --dangerously-skip-permissions';
+    if (options.model) cmd += ` --model ${options.model}`;
+    return cmd;
+  }
+
+  buildResumeCommand(options: AgentInvokeOptions): string {
+    if (options.sessionId) {
+      return `${this.command} --resume "${options.sessionId}"`;
+    }
+    return `${this.command} --continue`;
+  }
+
+  parseUsageFromOutput(data: string): AgentUsageData | null {
+    const costMatch = data.match(COST_PATTERN);
+    const inputMatch = data.match(INPUT_TOKENS_PATTERN);
+    const outputMatch = data.match(OUTPUT_TOKENS_PATTERN);
+
+    if (!costMatch && !inputMatch && !outputMatch) return null;
+
+    const result: AgentUsageData = {};
+    if (costMatch) result.cost = parseFloat(costMatch[1]);
+    if (inputMatch) result.inputTokens = parseInt(inputMatch[1].replace(/,/g, ''), 10);
+    if (outputMatch) result.outputTokens = parseInt(outputMatch[1].replace(/,/g, ''), 10);
+    return result;
+  }
+
+  detectExit(data: string): boolean {
+    return EXIT_PATTERNS.some((p) => p.test(data));
+  }
+
+  getModels(): AgentModelOption[] {
+    return [
+      { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+      { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+      { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+    ];
+  }
+
+  getDefaultModel(): string {
+    return 'claude-opus-4-6';
+  }
+
+  getSettingsFields(): AgentSettingsField[] {
+    return [];
+  }
+
+  // ─── Insights ─────────────────────────────────────────
+
+  buildInsightsPrompt(messages: InsightsMessage[], userMessage: string): string {
+    const history = messages
+      .map((m) => `${m.role === 'user' ? 'Human' : 'Assistant'}: ${m.content}`)
+      .join('\n\n');
+    return history ? `${history}\n\nHuman: ${userMessage}` : userMessage;
+  }
+
+  buildInsightsArgs(model: InsightsModel | string, projectPath?: string): string[] {
+    const modelId = INSIGHTS_MODEL_MAP[model] || model;
+    const args = ['--output-format', 'stream-json', '--verbose', '--model', modelId];
+    if (projectPath) args.push('--add-dir', projectPath);
+    return args;
+  }
+
+  parseInsightsStreamLine(line: string): string | null {
+    const trimmed = line.trim();
+    if (!trimmed) return null;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+        return parsed.delta.text;
+      }
+      if (parsed.type === 'result' && parsed.result) {
+        const text =
+          typeof parsed.result === 'string'
+            ? parsed.result
+            : parsed.result.content
+                ?.filter((b: any) => b.type === 'text')
+                .map((b: any) => b.text)
+                .join('') || '';
+        return text || null;
+      }
+      if (parsed.type === 'assistant' && parsed.content) {
+        const text = parsed.content
+          .filter((b: any) => b.type === 'text')
+          .map((b: any) => b.text)
+          .join('');
+        return text || null;
+      }
+    } catch {
+      if (trimmed && !trimmed.startsWith('{')) {
+        return trimmed + '\n';
+      }
+    }
+    return null;
+  }
+}

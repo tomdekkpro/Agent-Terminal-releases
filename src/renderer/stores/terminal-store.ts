@@ -1,18 +1,9 @@
 import { create } from 'zustand';
 import { v4 as uuid } from 'uuid';
-import type { CopilotProvider } from '../../shared/types';
+import type { AgentProviderId, TerminalTask } from '../../shared/types';
 import { useSettingsStore } from './settings-store';
 
 export type TerminalStatus = 'idle' | 'running' | 'claude-active' | 'exited';
-
-export interface TerminalClickUpTask {
-  id: string;
-  customId?: string;
-  name: string;
-  status: string;
-  statusColor: string;
-  url: string;
-}
 
 export interface TimeTracking {
   startedAt: number | null;  // Unix timestamp ms when current session started
@@ -31,8 +22,10 @@ export interface Terminal {
   claudeSessionId?: string;
   claudeCwd?: string;
   projectId?: string;
-  clickUpTask?: TerminalClickUpTask;
-  copilotProvider: CopilotProvider;
+  task?: TerminalTask;
+  agentProvider: AgentProviderId;
+  /** @deprecated Use agentProvider */
+  copilotProvider?: AgentProviderId;
   worktreePath?: string;
   worktreeBranch?: string;
   timeTracking?: TimeTracking;
@@ -72,8 +65,8 @@ function buildSaveableState(state: TerminalState) {
       isClaudeMode: t.isClaudeMode,
       claudeSessionId: t.claudeSessionId,
       claudeCwd: t.claudeCwd,
-      copilotProvider: t.copilotProvider,
-      clickUpTask: t.clickUpTask,
+      agentProvider: t.agentProvider,
+      task: t.task,
       worktreePath: t.worktreePath,
       worktreeBranch: t.worktreeBranch,
       timeTracking: t.timeTracking,
@@ -123,7 +116,7 @@ interface TerminalState {
   setActiveGroup: (groupId: string) => void;
   setTerminalStatus: (id: string, status: TerminalStatus) => void;
   setClaudeMode: (id: string, isClaudeMode: boolean) => void;
-  setCopilotProvider: (id: string, provider: CopilotProvider) => void;
+  setAgentProvider: (id: string, provider: AgentProviderId) => void;
   clearAllTerminals: () => void;
   getTerminal: (id: string) => Terminal | undefined;
   getActiveTerminal: () => Terminal | undefined;
@@ -151,7 +144,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     if (activeCount >= state.maxTerminals) return null;
 
     const groupId = uuid();
-    const defaultProvider = useSettingsStore.getState().settings.defaultCopilotProvider || 'claude';
+    const defaultProvider = useSettingsStore.getState().settings.defaultAgentProvider || 'claude';
     const newTerminal: Terminal = {
       id: uuid(),
       groupId,
@@ -160,7 +153,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       cwd: cwd || '',
       createdAt: new Date(),
       isClaudeMode: false,
-      copilotProvider: defaultProvider,
+      agentProvider: defaultProvider,
       projectId,
     };
 
@@ -180,7 +173,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     if (activeCount >= state.maxTerminals) return null;
     if (!state.activeGroupId) return null;
 
-    const defaultProvider = useSettingsStore.getState().settings.defaultCopilotProvider || 'claude';
+    const defaultProvider = useSettingsStore.getState().settings.defaultAgentProvider || 'claude';
     const newTerminal: Terminal = {
       id: uuid(),
       groupId: state.activeGroupId,
@@ -189,7 +182,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       cwd: cwd || '',
       createdAt: new Date(),
       isClaudeMode: false,
-      copilotProvider: defaultProvider,
+      agentProvider: defaultProvider,
       projectId,
     };
 
@@ -305,10 +298,10 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     }));
   },
 
-  setCopilotProvider: (id: string, provider: CopilotProvider) => {
+  setAgentProvider: (id: string, provider: AgentProviderId) => {
     set((state) => ({
       terminals: state.terminals.map((t) =>
-        t.id === id ? { ...t, copilotProvider: provider } : t
+        t.id === id ? { ...t, agentProvider: provider } : t
       ),
     }));
   },
@@ -419,11 +412,13 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         cwd: t.cwd || '',
         createdAt: new Date(),
         isClaudeMode: t.isClaudeMode || false,
-        copilotProvider: t.copilotProvider || 'claude',
+        // Migrate legacy copilotProvider → agentProvider
+        agentProvider: t.agentProvider || t.copilotProvider || 'claude',
         claudeSessionId: t.claudeSessionId,
         claudeCwd: t.claudeCwd,
         projectId: t.projectId,
-        clickUpTask: t.clickUpTask,
+        // Support both legacy clickUpTask and new task field
+        task: t.task || (t.clickUpTask ? { ...t.clickUpTask, provider: 'clickup' as const } : undefined),
         worktreePath: t.worktreePath,
         worktreeBranch: t.worktreeBranch,
         timeTracking: t.timeTracking,
@@ -457,9 +452,9 @@ useTerminalStore.subscribe((state) => {
     projects: state.terminals.map((t) => t.projectId || '').join(','),
     active: state.activeTerminalId,
     activeGroup: state.activeGroupId,
-    claude: state.terminals.map((t) => `${t.isClaudeMode ? 1 : 0}:${t.claudeSessionId || ''}:${t.copilotProvider}`).join(','),
+    claude: state.terminals.map((t) => `${t.isClaudeMode ? 1 : 0}:${t.claudeSessionId || ''}:${t.agentProvider}`).join(','),
     worktrees: state.terminals.map((t) => t.worktreeBranch || '').join(','),
-    tasks: state.terminals.map((t) => t.clickUpTask?.id || '').join(','),
+    tasks: state.terminals.map((t) => t.task?.id || '').join(','),
     timers: state.terminals.map((t) => `${t.timeTracking?.startedAt || 0}:${t.timeTracking?.elapsed || 0}`).join(','),
   });
   if (snap !== prevSnapshot) {

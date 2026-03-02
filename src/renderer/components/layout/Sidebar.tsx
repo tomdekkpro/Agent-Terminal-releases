@@ -9,7 +9,7 @@ interface SidebarProps {
 
 const navItems: { id: ViewType; icon: typeof Terminal; label: string; shortcut: string }[] = [
   { id: 'terminals', icon: Terminal, label: 'Terminals', shortcut: 'Ctrl+T' },
-  { id: 'clickup', icon: CheckSquare, label: 'ClickUp', shortcut: 'Ctrl+K' },
+  { id: 'tasks', icon: CheckSquare, label: 'Tasks', shortcut: 'Ctrl+K' },
   { id: 'insights', icon: Sparkles, label: 'Insights', shortcut: 'Ctrl+I' },
   { id: 'settings', icon: Settings, label: 'Settings', shortcut: 'Ctrl+S' },
 ];
@@ -70,7 +70,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
 
       {/* Version at bottom */}
       <div className="mt-auto pt-2">
-        <span className="text-[9px] text-[var(--text-muted)] opacity-40">v1.2.0</span>
+        <span className="text-[9px] text-[var(--text-muted)] opacity-40">v1.3.0</span>
       </div>
     </div>
   );

@@ -637,6 +637,51 @@ const COST_PATTERN = /(?:Total )?Cost:?\s*\$([0-9.]+)/i;
 const INPUT_TOKENS_PATTERN = /(?:Input tokens|Tokens in):?\s*([0-9,]+)/i;
 const OUTPUT_TOKENS_PATTERN = /(?:Output tokens|Tokens out):?\s*([0-9,]+)/i;
 
+// ─── Copilot Usage Extraction (from terminal output) ─────────────────────────
+
+const COPILOT_PREMIUM_PATTERN = /Total usage est:\s*(\d+)\s*Premium requests/i;
+const COPILOT_INPUT_PATTERN = /input:\s*([0-9,]+)\s*tokens/i;
+const COPILOT_OUTPUT_PATTERN = /output:\s*([0-9,]+)\s*tokens/i;
+const COPILOT_DURATION_API_PATTERN = /Total duration \(API\):\s*(.+)/i;
+const COPILOT_DURATION_WALL_PATTERN = /Total duration \(wall\):\s*(.+)/i;
+const COPILOT_CODE_CHANGES_PATTERN = /Total code changes:\s*(\d+)\s*lines?\s*added,?\s*(\d+)\s*lines?\s*removed/i;
+
+export interface CopilotOutputUsage {
+  premiumRequests?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  durationApi?: string;
+  durationWall?: string;
+  linesAdded?: number;
+  linesRemoved?: number;
+}
+
+/**
+ * Extract Copilot usage data from terminal output (e.g. /usage command)
+ */
+export function extractCopilotUsageFromOutput(data: string): CopilotOutputUsage | null {
+  const premiumMatch = data.match(COPILOT_PREMIUM_PATTERN);
+  const inputMatch = data.match(COPILOT_INPUT_PATTERN);
+  const outputMatch = data.match(COPILOT_OUTPUT_PATTERN);
+  const durationApiMatch = data.match(COPILOT_DURATION_API_PATTERN);
+  const durationWallMatch = data.match(COPILOT_DURATION_WALL_PATTERN);
+  const codeChangesMatch = data.match(COPILOT_CODE_CHANGES_PATTERN);
+
+  if (!premiumMatch && !inputMatch && !outputMatch && !durationApiMatch && !durationWallMatch && !codeChangesMatch) return null;
+
+  const result: CopilotOutputUsage = {};
+  if (premiumMatch) result.premiumRequests = parseInt(premiumMatch[1], 10);
+  if (inputMatch) result.inputTokens = parseInt(inputMatch[1].replace(/,/g, ''), 10);
+  if (outputMatch) result.outputTokens = parseInt(outputMatch[1].replace(/,/g, ''), 10);
+  if (durationApiMatch) result.durationApi = durationApiMatch[1].trim();
+  if (durationWallMatch) result.durationWall = durationWallMatch[1].trim();
+  if (codeChangesMatch) {
+    result.linesAdded = parseInt(codeChangesMatch[1], 10);
+    result.linesRemoved = parseInt(codeChangesMatch[2], 10);
+  }
+  return result;
+}
+
 /**
  * Extract cost and token usage from Claude terminal output
  */

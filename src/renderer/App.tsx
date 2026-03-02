@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './components/layout/Sidebar';
 import { ProjectTabBar } from './components/layout/ProjectTabBar';
 import { TerminalView } from './components/terminal/TerminalView';
-import { ClickUpView } from './components/clickup/ClickUpView';
+import { TasksView } from './components/tasks';
 import { SettingsView } from './components/settings/SettingsView';
 import { useGlobalTerminalListeners } from './hooks/useGlobalTerminalListeners';
 import { useProjectStore } from './stores/project-store';
@@ -11,7 +11,7 @@ import { useTerminalStore } from './stores/terminal-store';
 import { InsightsView } from './components/insights';
 import { UpdateNotification } from './components/updates/UpdateNotification';
 
-export type ViewType = 'terminals' | 'clickup' | 'insights' | 'settings';
+export type ViewType = 'terminals' | 'tasks' | 'insights' | 'settings';
 
 export default function App() {
   const [activeView, setActiveView] = useState<ViewType>('terminals');
@@ -30,7 +30,7 @@ export default function App() {
   useEffect(() => {
     const viewKeys: Record<string, ViewType> = {
       t: 'terminals',
-      k: 'clickup',
+      k: 'tasks',
       i: 'insights',
       s: 'settings',
     };
@@ -72,8 +72,8 @@ export default function App() {
 
   const restoreTerminals = useCallback(async () => {
     const restored = await restoreState();
-    // Only one Copilot terminal can auto-resume (--continue grabs the most recent session)
-    let copilotResumed = false;
+    // Track which agents have been continued (only one --continue per agent)
+    const continuedAgents = new Set<string>();
     // Create PTYs for each restored terminal
     for (const terminal of restored) {
       try {
@@ -84,23 +84,26 @@ export default function App() {
           rows: 24,
         });
         if (terminal.isClaudeMode) {
-          if (terminal.copilotProvider === 'copilot') {
-            if (!copilotResumed) {
-              // Resume most recent Copilot session with --continue
-              await window.electronAPI.resumeCopilot(terminal.id, terminal.cwd);
-              copilotResumed = true;
+          const agentId = terminal.agentProvider || 'claude';
+          const resumeCwd = terminal.claudeCwd || terminal.cwd;
+
+          if (agentId === 'claude') {
+            // Claude supports per-session resume
+            await window.electronAPI.resumeAgent(terminal.id, 'claude', {
+              sessionId: terminal.claudeSessionId,
+              cwd: resumeCwd,
+            });
+          } else {
+            // Other agents: resume the first one with --continue, reset the rest
+            if (!continuedAgents.has(agentId)) {
+              await window.electronAPI.resumeAgent(terminal.id, agentId, { cwd: terminal.cwd });
+              continuedAgents.add(agentId);
             } else {
-              // Additional Copilot terminals reset — user can start/resume manually
               useTerminalStore.getState().setClaudeMode(terminal.id, false);
             }
-          } else {
-            // Resume Claude session (each has its own session ID)
-            const resumeCwd = terminal.claudeCwd || terminal.cwd;
-            await window.electronAPI.resumeClaude(terminal.id, terminal.claudeSessionId, resumeCwd);
           }
         }
       } catch {
-        // Terminal creation failed — mark as exited
         useTerminalStore.getState().setTerminalStatus(terminal.id, 'exited');
       }
     }
@@ -122,7 +125,7 @@ export default function App() {
             <TerminalView projectId={activeProjectId ?? undefined} />
           </>
         )}
-        {activeView === 'clickup' && <ClickUpView />}
+        {activeView === 'tasks' && <TasksView />}
         {activeView === 'insights' && <InsightsView />}
         {activeView === 'settings' && <SettingsView />}
       </main>

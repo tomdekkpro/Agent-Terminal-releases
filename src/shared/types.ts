@@ -1,5 +1,67 @@
 export type WindowsShellType = 'cmd' | 'powershell' | 'bash';
-export type CopilotProvider = 'claude' | 'copilot';
+export type AgentProviderId = 'claude' | 'copilot' | 'gemini' | 'qwen' | 'aider';
+/** @deprecated Use AgentProviderId instead */
+export type CopilotProvider = AgentProviderId;
+export type TaskManagerProvider = 'clickup' | 'jira' | 'none';
+
+export interface AgentCapabilities {
+  resume: boolean;
+  continue: boolean;
+  yolo: boolean;
+  sessionDetection: boolean;
+  remoteControl: boolean;
+  insights: boolean;
+}
+
+export interface AgentModelOption {
+  id: string;
+  label: string;
+}
+
+export interface AgentInvokeOptions {
+  cwd?: string;
+  model?: string;
+  skipPermissions?: boolean;
+  sessionId?: string;
+  task?: string;
+  env?: Record<string, string>;
+}
+
+export interface AgentSettingsField {
+  key: string;
+  label: string;
+  type: 'text' | 'password' | 'select';
+  placeholder?: string;
+  description?: string;
+  options?: { value: string; label: string }[];
+}
+
+/** Serializable agent metadata sent to the renderer */
+export interface AgentProviderMeta {
+  id: AgentProviderId;
+  displayName: string;
+  command: string;
+  iconName: string;
+  color: string;
+  capabilities: AgentCapabilities;
+  installHint: string;
+  available: boolean;
+  models: AgentModelOption[];
+  defaultModel: string;
+  settingsFields: AgentSettingsField[];
+}
+
+/** Per-agent usage data extracted from terminal output */
+export interface AgentUsageData {
+  cost?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  premiumRequests?: number;
+  durationApi?: string;
+  durationWall?: string;
+  linesAdded?: number;
+  linesRemoved?: number;
+}
 
 export interface TerminalCreateOptions {
   id: string;
@@ -9,25 +71,40 @@ export interface TerminalCreateOptions {
   env?: Record<string, string>;
 }
 
-export interface ClickUpTask {
+/** Normalized task shape all providers map to */
+export interface TaskManagerTask {
   id: string;
-  custom_id?: string;
+  customId?: string;
   name: string;
-  text_content?: string;
   description?: string;
-  markdown_description?: string;
-  status: { status: string; color: string; type: string };
-  creator: { id: number; username: string; email: string };
-  assignees: Array<{ id: number; username: string; email: string; initials?: string }>;
-  tags: Array<{ name: string; tag_bg: string; tag_fg: string }>;
-  date_created: string;
-  date_updated: string;
+  status: { name: string; color: string };
+  priority?: { name: string; color: string };
+  assignees: Array<{ id: string; username: string; email?: string; initials?: string }>;
+  tags: Array<{ name: string; bgColor: string; fgColor: string }>;
   url: string;
-  priority?: { id: string; priority: string; color: string };
-  list?: { id: string; name: string };
-  folder?: { id: string; name: string };
-  space?: { id: string; name: string };
-  team_id?: string;
+  createdAt: string;
+  updatedAt: string;
+  providerTaskId: string;
+  provider: TaskManagerProvider;
+}
+
+/** List/container that holds tasks (ClickUp list, Jira project, etc.) */
+export interface TaskManagerList {
+  id: string;
+  name: string;
+  space?: string;
+  folder?: string;
+}
+
+/** Slim task shape stored on terminals */
+export interface TerminalTask {
+  id: string;
+  customId?: string;
+  name: string;
+  status: string;
+  statusColor: string;
+  url: string;
+  provider: TaskManagerProvider;
 }
 
 export interface AppSettings {
@@ -38,11 +115,16 @@ export interface AppSettings {
   terminalCursorStyle: 'block' | 'underline' | 'bar';
   terminalCursorBlink: boolean;
   terminalScrollback: number;
-  // ClickUp
-  clickupEnabled: boolean;
+  terminalGpuAcceleration: boolean;
+  // Task Manager
+  taskManagerProvider: TaskManagerProvider;
   clickupApiKey: string;
   clickupWorkspaceId: string;
   clickupListId: string;
+  jiraEmail: string;
+  jiraApiToken: string;
+  jiraDomain: string;
+  jiraProjectKey: string;
   // Agent
   defaultModel: string;
   workingDirectory: string;
@@ -51,9 +133,14 @@ export interface AppSettings {
   theme: 'dark' | 'light';
   // General
   autoUpdate: boolean;
-  // Copilot
-  defaultCopilotProvider: CopilotProvider;
-  defaultCopilotModel: string;
+  // Agent providers
+  defaultAgentProvider: AgentProviderId;
+  agentModels: Partial<Record<AgentProviderId, string>>;
+  agentConfig: Partial<Record<AgentProviderId, Record<string, string>>>;
+  /** @deprecated Use defaultAgentProvider */
+  defaultCopilotProvider?: AgentProviderId;
+  /** @deprecated Use agentModels.copilot */
+  defaultCopilotModel?: string;
 }
 
 // Usage Monitor
@@ -67,10 +154,30 @@ export interface UsageSnapshot {
 
 export interface UsageCostData {
   terminalId: string;
+  provider?: AgentProviderId;
   cost?: number;
   inputTokens?: number;
   outputTokens?: number;
+  premiumRequests?: number;
+  durationApi?: string;
+  durationWall?: string;
+  linesAdded?: number;
+  linesRemoved?: number;
   timestamp: Date;
+}
+
+export interface CopilotUsageData {
+  premiumRequests?: number;
+  totalTurns: number;
+  models: string[];
+  tokenLimit?: number;
+  tokensUsed?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  durationApi?: string;
+  durationWall?: string;
+  linesAdded?: number;
+  linesRemoved?: number;
 }
 
 // Project Management
@@ -104,7 +211,7 @@ export interface InsightsSession {
   title: string;
   messages: InsightsMessage[];
   model: InsightsModel;
-  provider?: CopilotProvider;
+  provider?: AgentProviderId;
   copilotModel?: string;
   projectPath?: string;
   createdAt: string;
@@ -116,7 +223,7 @@ export interface InsightsSessionMeta {
   title: string;
   messageCount: number;
   model: InsightsModel;
-  provider?: CopilotProvider;
+  provider?: AgentProviderId;
   projectPath?: string;
   createdAt: string;
   updatedAt: string;
@@ -136,15 +243,27 @@ export const DEFAULT_SETTINGS: AppSettings = {
   terminalCursorStyle: 'block',
   terminalCursorBlink: true,
   terminalScrollback: 10000,
-  clickupEnabled: false,
+  terminalGpuAcceleration: true,
+  taskManagerProvider: 'none',
   clickupApiKey: '',
   clickupWorkspaceId: '',
   clickupListId: '',
+  jiraEmail: '',
+  jiraApiToken: '',
+  jiraDomain: '',
+  jiraProjectKey: '',
   defaultModel: 'claude-opus-4-6',
   workingDirectory: '',
   maxTerminals: 12,
   theme: 'dark',
   autoUpdate: true,
-  defaultCopilotProvider: 'claude',
-  defaultCopilotModel: 'claude-sonnet-4.5',
+  defaultAgentProvider: 'claude',
+  agentModels: {
+    claude: 'claude-opus-4-6',
+    copilot: 'claude-sonnet-4.5',
+    gemini: 'gemini-2.5-pro',
+    qwen: 'qwen3-coder',
+    aider: '',
+  },
+  agentConfig: {},
 };

@@ -1,48 +1,10 @@
-import { spawn, execSync, type ChildProcess } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import type { BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../shared/constants';
-import type { CopilotProvider, InsightsMessage, InsightsModel, InsightsStreamEvent } from '../../shared/types';
-
-const MODEL_MAP: Record<InsightsModel, string> = {
-  opus: 'claude-opus-4-6',
-  sonnet: 'claude-sonnet-4-6',
-  haiku: 'claude-haiku-4-5-20251001',
-};
+import type { AgentProviderId, InsightsMessage, InsightsModel, InsightsStreamEvent } from '../../shared/types';
+import { agentRegistry } from '../ipc/providers/agent-registry';
 
 const activeStreams = new Map<string, ChildProcess>();
-
-function isCommandAvailable(command: string): boolean {
-  try {
-    const check = process.platform === 'win32' ? `where ${command}` : `which ${command}`;
-    execSync(check, { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function buildClaudePrompt(messages: InsightsMessage[], userMessage: string): string {
-  const history = messages
-    .map((m) => `${m.role === 'user' ? 'Human' : 'Assistant'}: ${m.content}`)
-    .join('\n\n');
-
-  if (history) {
-    return `${history}\n\nHuman: ${userMessage}`;
-  }
-  return userMessage;
-}
-
-function buildCopilotPrompt(messages: InsightsMessage[], userMessage: string): string {
-  if (messages.length === 0) {
-    return userMessage;
-  }
-
-  const history = messages
-    .map((m) => `<${m.role}>\n${m.content}\n</${m.role}>`)
-    .join('\n\n');
-
-  return `Here is our conversation so far:\n\n${history}\n\n<user>\n${userMessage}\n</user>\n\nPlease respond to the latest user message, taking the full conversation history into account.`;
-}
 
 export function sendMessage(
   sessionId: string,
@@ -51,45 +13,74 @@ export function sendMessage(
   model: InsightsModel,
   projectPath: string | undefined,
   getWindow: () => BrowserWindow | null,
-  provider?: CopilotProvider,
+  provider?: AgentProviderId,
   copilotModel?: string,
 ): Promise<string> {
-  console.log('[insights] sendMessage — provider:', provider || 'claude', 'model:', provider === 'copilot' ? copilotModel : model, 'history:', messages.length, 'msgs', 'projectPath:', projectPath);
-  if (provider === 'copilot') {
-    return sendCopilotMessage(sessionId, messages, userMessage, copilotModel, projectPath, getWindow);
+  const providerId = provider || 'claude';
+  const agentProvider = agentRegistry.get(providerId);
+
+  if (!agentProvider) {
+    return Promise.reject(new Error(`Unknown agent provider: ${providerId}`));
   }
-  return sendClaudeMessage(sessionId, messages, userMessage, model, projectPath, getWindow);
+
+  if (!agentProvider.isAvailable()) {
+    return Promise.reject(new Error(`${agentProvider.displayName} CLI is not installed. ${agentProvider.installHint}`));
+  }
+
+  // Use provider-specific insights methods if available, otherwise fall back to generic spawn
+  if (agentProvider.buildInsightsPrompt && agentProvider.buildInsightsArgs) {
+    return spawnAgentChat(
+      sessionId,
+      agentProvider.command,
+      agentProvider.buildInsightsPrompt(messages, userMessage),
+      agentProvider.buildInsightsArgs(providerId === 'copilot' ? (copilotModel || model) : model, projectPath),
+      agentProvider.parseInsightsStreamLine?.bind(agentProvider) || null,
+      providerId === 'copilot' ? projectPath : undefined,
+      copilotModel && providerId === 'copilot' ? copilotModel : undefined,
+      getWindow,
+    );
+  }
+
+  // Fallback: pipe prompt to stdin, read raw stdout
+  const prompt = messages.length > 0
+    ? messages.map((m) => `${m.role}: ${m.content}`).join('\n\n') + `\n\nuser: ${userMessage}`
+    : userMessage;
+
+  return spawnAgentChat(
+    sessionId,
+    agentProvider.command,
+    prompt,
+    [],
+    null,
+    projectPath,
+    undefined,
+    getWindow,
+  );
 }
 
-function sendClaudeMessage(
+function spawnAgentChat(
   sessionId: string,
-  messages: InsightsMessage[],
-  userMessage: string,
-  model: InsightsModel,
-  projectPath: string | undefined,
+  command: string,
+  prompt: string,
+  args: string[],
+  lineParser: ((line: string) => string | null) | null,
+  cwd: string | undefined,
+  copilotModel: string | undefined,
   getWindow: () => BrowserWindow | null,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    if (!isCommandAvailable('claude')) {
-      reject(new Error('Claude Code CLI is not installed. Install it from https://docs.anthropic.com/en/docs/claude-code'));
-      return;
-    }
-
-    const prompt = buildClaudePrompt(messages, userMessage);
-    console.log('[insights] Claude prompt:\n', prompt.slice(0, 500), prompt.length > 500 ? `... (${prompt.length} chars total)` : '');
-    console.log('[insights] Claude args:', ['claude', '--output-format', 'stream-json', '--verbose', '--model', MODEL_MAP[model]].join(' '));
-
-    const args = ['--output-format', 'stream-json', '--verbose', '--model', MODEL_MAP[model]];
-
-    if (projectPath) {
-      args.push('--add-dir', projectPath);
+    // For copilot, append --model if provided
+    const finalArgs = [...args];
+    if (copilotModel && command === 'copilot') {
+      finalArgs.push('--model', copilotModel);
     }
 
     const env = { ...process.env };
     delete env.CLAUDECODE;
 
-    const child = spawn('claude', args, {
+    const child = spawn(command, finalArgs, {
       env,
+      cwd: cwd || undefined,
       shell: true,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -109,129 +100,26 @@ function sendClaudeMessage(
       }
     };
 
-    const processLine = (line: string) => {
-      const trimmed = line.trim();
-      if (!trimmed) return;
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
-          fullText += parsed.delta.text;
-          sendEvent({ type: 'text', sessionId, text: parsed.delta.text });
-        } else if (parsed.type === 'result' && parsed.result && !fullText) {
-          const text =
-            typeof parsed.result === 'string'
-              ? parsed.result
-              : parsed.result.content
-                  ?.filter((b: any) => b.type === 'text')
-                  .map((b: any) => b.text)
-                  .join('') || '';
+    child.stdout?.on('data', (chunk: Buffer) => {
+      const data = chunk.toString();
+
+      if (lineParser) {
+        // Line-based parsing (e.g. Claude stream-json)
+        buffer += data;
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          const text = lineParser(line);
           if (text) {
-            fullText = text;
-            sendEvent({ type: 'text', sessionId, text });
-          }
-        } else if (parsed.type === 'assistant' && parsed.content) {
-          const text = parsed.content
-            .filter((b: any) => b.type === 'text')
-            .map((b: any) => b.text)
-            .join('');
-          if (text && !fullText) {
-            fullText = text;
+            fullText += text;
             sendEvent({ type: 'text', sessionId, text });
           }
         }
-      } catch {
-        if (trimmed && !trimmed.startsWith('{')) {
-          fullText += trimmed + '\n';
-          sendEvent({ type: 'text', sessionId, text: trimmed + '\n' });
-        }
-      }
-    };
-
-    child.stdout?.on('data', (chunk: Buffer) => {
-      buffer += chunk.toString();
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      for (const line of lines) {
-        processLine(line);
-      }
-    });
-
-    child.stderr?.on('data', (chunk: Buffer) => {
-      stderrText += chunk.toString();
-    });
-
-    child.on('close', (code) => {
-      activeStreams.delete(sessionId);
-      if (buffer.trim()) {
-        processLine(buffer);
-      }
-      if (code !== 0 && !fullText) {
-        const errorMsg = stderrText.trim() || `Claude exited with code ${code}`;
-        console.error('[insights] error:', errorMsg);
-        sendEvent({ type: 'error', sessionId, error: errorMsg });
-        reject(new Error(errorMsg));
       } else {
-        sendEvent({ type: 'done', sessionId });
-        resolve(fullText);
+        // Raw stdout (e.g. Copilot, Gemini)
+        fullText += data;
+        sendEvent({ type: 'text', sessionId, text: data });
       }
-    });
-
-    child.on('error', (err) => {
-      activeStreams.delete(sessionId);
-      sendEvent({ type: 'error', sessionId, error: err.message });
-      reject(err);
-    });
-  });
-}
-
-function sendCopilotMessage(
-  sessionId: string,
-  messages: InsightsMessage[],
-  userMessage: string,
-  copilotModel: string | undefined,
-  projectPath: string | undefined,
-  getWindow: () => BrowserWindow | null,
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    if (!isCommandAvailable('copilot')) {
-      reject(new Error('GitHub Copilot CLI is not installed. Install it with: npm install -g @github/copilot'));
-      return;
-    }
-
-    const prompt = buildCopilotPrompt(messages, userMessage);
-    console.log('[insights] Copilot prompt:\n', prompt.slice(0, 500), prompt.length > 500 ? `... (${prompt.length} chars total)` : '');
-
-    // Pipe prompt via stdin — copilot auto-detects piped input
-    const args = ['-s', '--allow-all-tools'];
-    console.log('[insights] Copilot args:', ['copilot', ...args, ...(copilotModel ? ['--model', copilotModel] : [])].join(' '), '| cwd:', projectPath);
-    if (copilotModel) {
-      args.push('--model', copilotModel);
-    }
-
-    const child = spawn('copilot', args, {
-      cwd: projectPath || undefined,
-      shell: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    child.stdin?.write(prompt);
-    child.stdin?.end();
-
-    activeStreams.set(sessionId, child);
-    let fullText = '';
-    let stderrText = '';
-
-    const sendEvent = (event: InsightsStreamEvent) => {
-      const win = getWindow();
-      if (win && !win.isDestroyed()) {
-        win.webContents.send(IPC_CHANNELS.INSIGHTS_STREAM_EVENT, event);
-      }
-    };
-
-    child.stdout?.on('data', (chunk: Buffer) => {
-      const text = chunk.toString();
-      fullText += text;
-      sendEvent({ type: 'text', sessionId, text });
     });
 
     child.stderr?.on('data', (chunk: Buffer) => {
@@ -240,9 +128,16 @@ function sendCopilotMessage(
 
     child.on('close', (code) => {
       activeStreams.delete(sessionId);
+      // Flush remaining buffer
+      if (lineParser && buffer.trim()) {
+        const text = lineParser(buffer);
+        if (text) {
+          fullText += text;
+          sendEvent({ type: 'text', sessionId, text });
+        }
+      }
       if (code !== 0 && !fullText) {
-        const errorMsg = stderrText.trim() || `Copilot exited with code ${code}`;
-        console.error('[insights] copilot error:', errorMsg);
+        const errorMsg = stderrText.trim() || `${command} exited with code ${code}`;
         sendEvent({ type: 'error', sessionId, error: errorMsg });
         reject(new Error(errorMsg));
       } else {

@@ -1,0 +1,294 @@
+import type { AppSettings, TaskManagerTask, TaskManagerList } from '../../../shared/types';
+import type { ITaskManagerProvider, ProviderResult } from './types';
+
+const CLICKUP_API_BASE = 'https://api.clickup.com/api/v2';
+
+// 30-second cache
+const taskCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL = 30000;
+
+async function clickUpFetch(apiKey: string, endpoint: string, options: RequestInit = {}) {
+  if (!apiKey) throw new Error('ClickUp API key not configured');
+
+  const response = await fetch(`${CLICKUP_API_BASE}${endpoint}`, {
+    ...options,
+    headers: {
+      Authorization: apiKey,
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`ClickUp API error: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+function normalizeClickUpTask(raw: any): TaskManagerTask {
+  return {
+    id: raw.id,
+    customId: raw.custom_id,
+    name: raw.name,
+    description: raw.text_content || raw.description,
+    status: { name: raw.status?.status || '', color: raw.status?.color || '#888' },
+    priority: raw.priority
+      ? { name: raw.priority.priority, color: raw.priority.color }
+      : undefined,
+    assignees: (raw.assignees || []).map((a: any) => ({
+      id: String(a.id),
+      username: a.username,
+      email: a.email,
+      initials: a.initials,
+    })),
+    tags: (raw.tags || []).map((t: any) => ({
+      name: t.name,
+      bgColor: t.tag_bg,
+      fgColor: t.tag_fg,
+    })),
+    url: raw.url,
+    createdAt: raw.date_created,
+    updatedAt: raw.date_updated,
+    providerTaskId: raw.id,
+    provider: 'clickup',
+  };
+}
+
+export class ClickUpProvider implements ITaskManagerProvider {
+  async checkConnection(settings: AppSettings): Promise<ProviderResult<any>> {
+    try {
+      const data = await clickUpFetch(settings.clickupApiKey, '/user');
+      const teams = await clickUpFetch(settings.clickupApiKey, '/team');
+      return {
+        success: true,
+        data: { user: data.user, workspaces: teams.teams },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Connection failed',
+      };
+    }
+  }
+
+  async getLists(settings: AppSettings): Promise<ProviderResult<TaskManagerList[]>> {
+    try {
+      const teamId = settings.clickupWorkspaceId;
+      if (!teamId) throw new Error('Workspace ID not configured');
+
+      const cacheKey = `lists-${teamId}`;
+      const cached = taskCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        return { success: true, data: cached.data };
+      }
+
+      const spacesRes = await clickUpFetch(settings.clickupApiKey, `/team/${teamId}/space?archived=false`);
+      const lists: TaskManagerList[] = [];
+
+      for (const space of spacesRes.spaces || []) {
+        // Folderless lists in this space
+        const folderlessRes = await clickUpFetch(settings.clickupApiKey, `/space/${space.id}/list?archived=false`);
+        for (const list of folderlessRes.lists || []) {
+          lists.push({ id: list.id, name: list.name, space: space.name });
+        }
+
+        // Folders → lists
+        const foldersRes = await clickUpFetch(settings.clickupApiKey, `/space/${space.id}/folder?archived=false`);
+        for (const folder of foldersRes.folders || []) {
+          for (const list of folder.lists || []) {
+            lists.push({ id: list.id, name: list.name, space: space.name, folder: folder.name });
+          }
+        }
+      }
+
+      taskCache.set(cacheKey, { data: lists, timestamp: Date.now() });
+      return { success: true, data: lists };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch lists',
+      };
+    }
+  }
+
+  async getTasks(settings: AppSettings, listId?: string): Promise<ProviderResult<TaskManagerTask[]>> {
+    try {
+      const targetListId = listId || settings.clickupListId;
+      if (!targetListId) throw new Error('No list ID configured');
+
+      const cacheKey = `tasks-${targetListId}`;
+      const cached = taskCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        return { success: true, data: cached.data.map(normalizeClickUpTask) };
+      }
+
+      const data = await clickUpFetch(
+        settings.clickupApiKey,
+        `/list/${targetListId}/task?include_closed=true&subtasks=true`,
+      );
+      taskCache.set(cacheKey, { data: data.tasks, timestamp: Date.now() });
+      return { success: true, data: (data.tasks || []).map(normalizeClickUpTask) };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch tasks',
+      };
+    }
+  }
+
+  async searchTasks(
+    settings: AppSettings,
+    query: string,
+    filters?: { statuses?: string[]; assignees?: string[]; includeClosed?: boolean },
+    listId?: string,
+  ): Promise<ProviderResult<TaskManagerTask[]>> {
+    try {
+      const targetListId = listId || settings.clickupListId;
+      if (!targetListId) throw new Error('No list ID configured');
+
+      const params = new URLSearchParams();
+      params.set('subtasks', 'true');
+      params.set('include_closed', filters?.includeClosed ? 'true' : 'false');
+
+      if (filters?.statuses?.length) {
+        for (const s of filters.statuses) params.append('statuses[]', s);
+      }
+      if (filters?.assignees?.length) {
+        for (const a of filters.assignees) params.append('assignees[]', a);
+      }
+
+      const cacheKey = `search-${targetListId}-${params.toString()}`;
+      const cached = taskCache.get(cacheKey);
+      let tasks: any[];
+
+      if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        tasks = cached.data;
+      } else {
+        const data = await clickUpFetch(
+          settings.clickupApiKey,
+          `/list/${targetListId}/task?${params.toString()}`,
+        );
+        tasks = data.tasks || [];
+        taskCache.set(cacheKey, { data: tasks, timestamp: Date.now() });
+      }
+
+      if (query.trim()) {
+        const q = query.toLowerCase();
+        tasks = tasks.filter(
+          (t: any) =>
+            t.name?.toLowerCase().includes(q) ||
+            t.custom_id?.toLowerCase().includes(q),
+        );
+      }
+
+      return { success: true, data: tasks.map(normalizeClickUpTask) };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to search tasks',
+      };
+    }
+  }
+
+  async getTask(settings: AppSettings, taskId: string): Promise<ProviderResult<TaskManagerTask>> {
+    try {
+      const data = await clickUpFetch(settings.clickupApiKey, `/task/${taskId}`);
+      return { success: true, data: normalizeClickUpTask(data) };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch task',
+      };
+    }
+  }
+
+  async createTask(settings: AppSettings, listId: string, taskData: any): Promise<ProviderResult<TaskManagerTask>> {
+    try {
+      const data = await clickUpFetch(settings.clickupApiKey, `/list/${listId}/task`, {
+        method: 'POST',
+        body: JSON.stringify(taskData),
+      });
+      return { success: true, data: normalizeClickUpTask(data) };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to create task',
+      };
+    }
+  }
+
+  async postComment(settings: AppSettings, taskId: string, comment: string): Promise<ProviderResult<any>> {
+    try {
+      const data = await clickUpFetch(settings.clickupApiKey, `/task/${taskId}/comment`, {
+        method: 'POST',
+        body: JSON.stringify({ comment_text: comment }),
+      });
+      return { success: true, data };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to post comment',
+      };
+    }
+  }
+
+  async updateStatus(settings: AppSettings, taskId: string, status: string): Promise<ProviderResult<any>> {
+    try {
+      const data = await clickUpFetch(settings.clickupApiKey, `/task/${taskId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status }),
+      });
+      return { success: true, data };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to update status',
+      };
+    }
+  }
+
+  async postTimeEntry(
+    settings: AppSettings,
+    taskId: string,
+    startMs: number,
+    durationMs: number,
+    description?: string,
+  ): Promise<ProviderResult<any>> {
+    try {
+      const teamId = settings.clickupWorkspaceId;
+      if (!teamId) throw new Error('Workspace ID not configured');
+
+      const body: any = { tid: taskId, start: startMs, duration: durationMs };
+      if (description) body.description = description;
+
+      const data = await clickUpFetch(settings.clickupApiKey, `/team/${teamId}/time_entries`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      return { success: true, data };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to post time entry',
+      };
+    }
+  }
+
+  async getTimeEntries(settings: AppSettings, taskId: string): Promise<ProviderResult<{ totalMs: number; entries: any[] }>> {
+    try {
+      const teamId = settings.clickupWorkspaceId;
+      if (!teamId) throw new Error('Workspace ID not configured');
+
+      const data = await clickUpFetch(settings.clickupApiKey, `/team/${teamId}/time_entries?task_id=${taskId}`);
+      const entries = data.data || [];
+      const totalMs = entries.reduce((sum: number, e: any) => sum + Number(e.duration || 0), 0);
+      return { success: true, data: { totalMs, entries } };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to get time entries',
+      };
+    }
+  }
+}

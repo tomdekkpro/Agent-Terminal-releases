@@ -3,7 +3,7 @@ import { join } from 'path';
 import { TerminalManager } from './terminal/terminal-manager';
 import { saveOutputBuffers } from './terminal/terminal-state-store';
 import { registerTerminalHandlers } from './ipc/terminal-handlers';
-import { registerClickUpHandlers } from './ipc/clickup-handlers';
+import { registerTaskManagerHandlers } from './ipc/task-manager-handlers';
 import { registerSettingsHandlers } from './ipc/settings-handlers';
 import { registerUsageHandlers, stopUsagePolling } from './ipc/usage-handlers';
 import { registerProjectHandlers } from './ipc/project-handlers';
@@ -11,6 +11,7 @@ import { registerGitHandlers } from './ipc/git-handlers';
 import { registerInsightsHandlers, cleanupInsights } from './ipc/insights-handlers';
 import { initAutoUpdater } from './updater';
 import { IPC_CHANNELS } from '../shared/constants';
+import { registerAllAgents } from './ipc/providers/agents';
 
 let mainWindow: BrowserWindow | null = null;
 let terminalManager: TerminalManager | null = null;
@@ -86,10 +87,13 @@ function getWindow(): BrowserWindow | null {
 }
 
 app.whenReady().then(() => {
+  // Register all agent providers before anything else
+  registerAllAgents();
+
   terminalManager = new TerminalManager(getWindow);
 
   registerTerminalHandlers(ipcMain, terminalManager, getWindow);
-  registerClickUpHandlers(ipcMain);
+  registerTaskManagerHandlers(ipcMain);
   registerSettingsHandlers(ipcMain);
   registerUsageHandlers(ipcMain, getWindow);
   registerProjectHandlers(ipcMain, getWindow);

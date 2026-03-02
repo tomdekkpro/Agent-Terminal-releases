@@ -1,18 +1,17 @@
 import { useEffect } from 'react';
 import { useTerminalStore, flushTerminalStateSync } from '../stores/terminal-store';
 
-/** Sync all running/paused timers to ClickUp (fire-and-forget) */
+/** Sync all running/paused timers to task manager (fire-and-forget) */
 function syncAllTimers() {
   const terminals = useTerminalStore.getState().terminals;
   for (const t of terminals) {
-    if (!t.timeTracking || !t.clickUpTask) continue;
+    if (!t.timeTracking || !t.task) continue;
     const { startedAt, elapsed } = t.timeTracking;
     const total = elapsed + (startedAt ? Date.now() - startedAt : 0);
     if (total <= 0) continue;
     const start = startedAt || Date.now() - total;
-    // Use sendBeacon for reliability during unload, fall back to invoke
     try {
-      window.electronAPI.postClickUpTimeEntry(t.clickUpTask.id, start, total);
+      window.electronAPI.postTaskTimeEntry(t.task.id, start, total);
     } catch { /* best effort */ }
   }
 }
@@ -46,21 +45,38 @@ export function useGlobalTerminalListeners() {
       })
     );
 
-    // Listen for Claude busy state
+    // Listen for agent busy state (generic)
+    if (window.electronAPI.onTerminalAgentBusy) {
+      cleanups.push(
+        window.electronAPI.onTerminalAgentBusy((id, isBusy) => {
+          updateTerminal(id, { isClaudeBusy: isBusy });
+        })
+      );
+    }
+
+    // Listen for agent session ID detection (generic)
+    if (window.electronAPI.onTerminalAgentSession) {
+      cleanups.push(
+        window.electronAPI.onTerminalAgentSession((id, sessionId) => {
+          updateTerminal(id, { claudeSessionId: sessionId });
+        })
+      );
+    }
+
+    // Legacy listeners (still fired for backward compat)
     cleanups.push(
       window.electronAPI.onTerminalClaudeBusy((id, isBusy) => {
         updateTerminal(id, { isClaudeBusy: isBusy });
       })
     );
 
-    // Listen for Claude session ID detection
     cleanups.push(
       window.electronAPI.onTerminalClaudeSession((id, sessionId) => {
         updateTerminal(id, { claudeSessionId: sessionId });
       })
     );
 
-    // Flush terminal state and sync timers to ClickUp before app closes
+    // Flush terminal state and sync timers before app closes
     const handleBeforeUnload = () => {
       flushTerminalStateSync();
       syncAllTimers();

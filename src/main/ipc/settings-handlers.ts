@@ -7,12 +7,6 @@ import { DEFAULT_SETTINGS, type AppSettings } from '../../shared/types';
 const SETTINGS_DIR = join(app.getPath('userData'), 'config');
 const SETTINGS_FILE = join(SETTINGS_DIR, 'settings.json');
 
-const VALID_COPILOT_MODELS = new Set([
-  'claude-sonnet-4.5', 'claude-opus-4.5', 'claude-haiku-4.5', 'claude-sonnet-4',
-  'gpt-5.1', 'gpt-5.1-codex-mini', 'gpt-5.1-codex', 'gpt-5', 'gpt-5-mini',
-  'gpt-4.1', 'gemini-3-pro-preview',
-]);
-
 let settingsCache: AppSettings | null = null;
 
 export function getSettings(): AppSettings {
@@ -21,17 +15,51 @@ export function getSettings(): AppSettings {
   try {
     if (existsSync(SETTINGS_FILE)) {
       const data = readFileSync(SETTINGS_FILE, 'utf-8');
-      settingsCache = { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
+      const raw = JSON.parse(data);
+
+      // ─── Migrations ─────────────────────────────────────────
+
+      // Migrate legacy clickupEnabled → taskManagerProvider
+      if (raw.taskManagerProvider === undefined) {
+        if (raw.clickupEnabled === true) {
+          raw.taskManagerProvider = 'clickup';
+        } else {
+          raw.taskManagerProvider = 'none';
+        }
+        delete raw.clickupEnabled;
+      }
+
+      // Migrate legacy defaultCopilotProvider → defaultAgentProvider
+      if (raw.defaultAgentProvider === undefined && raw.defaultCopilotProvider) {
+        raw.defaultAgentProvider = raw.defaultCopilotProvider;
+      }
+
+      // Migrate legacy defaultModel → agentModels.claude
+      if (!raw.agentModels) {
+        raw.agentModels = { ...DEFAULT_SETTINGS.agentModels };
+        if (raw.defaultModel) {
+          raw.agentModels.claude = raw.defaultModel;
+        }
+        if (raw.defaultCopilotModel) {
+          raw.agentModels.copilot = raw.defaultCopilotModel;
+        }
+      }
+
+      // Initialize agentConfig if missing
+      if (!raw.agentConfig) {
+        raw.agentConfig = {};
+      }
+
+      // Clean up deprecated fields from persisted data
+      delete raw.defaultCopilotProvider;
+      delete raw.defaultCopilotModel;
+
+      settingsCache = { ...DEFAULT_SETTINGS, ...raw };
     } else {
       settingsCache = { ...DEFAULT_SETTINGS };
     }
   } catch {
     settingsCache = { ...DEFAULT_SETTINGS };
-  }
-
-  // Migrate invalid copilot model IDs from older versions
-  if (settingsCache!.defaultCopilotModel && !VALID_COPILOT_MODELS.has(settingsCache!.defaultCopilotModel)) {
-    settingsCache!.defaultCopilotModel = DEFAULT_SETTINGS.defaultCopilotModel;
   }
 
   return settingsCache!;
@@ -42,7 +70,9 @@ function saveSettings(settings: AppSettings): void {
     if (!existsSync(SETTINGS_DIR)) {
       mkdirSync(SETTINGS_DIR, { recursive: true });
     }
-    writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+    // Strip deprecated fields before saving
+    const { defaultCopilotProvider: _, defaultCopilotModel: __, ...clean } = settings as any;
+    writeFileSync(SETTINGS_FILE, JSON.stringify(clean, null, 2));
     settingsCache = settings;
   } catch (error) {
     console.error('Failed to save settings:', error);

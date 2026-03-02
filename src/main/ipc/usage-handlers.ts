@@ -8,6 +8,7 @@
 import type { IpcMain, BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { fetchUsageData, isClaudeAvailable } from '../usage/usage-service';
+import { getCopilotSessionData } from '../usage/copilot-usage-service';
 import type { UsageSnapshot } from '../../shared/types';
 import { debugError } from '../../shared/utils';
 
@@ -48,6 +49,24 @@ export function registerUsageHandlers(
       return { success: true, data: usage };
     } catch (err) {
       debugError('[UsageHandlers] Failed to fetch usage:', err);
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      };
+    }
+  });
+
+  // Handle Copilot usage request from renderer
+  ipcMain.handle(IPC_CHANNELS.COPILOT_USAGE_REQUEST, async () => {
+    try {
+      const data = await getCopilotSessionData();
+      const win = getWindow();
+      if (win && !win.isDestroyed()) {
+        win.webContents.send(IPC_CHANNELS.COPILOT_USAGE_UPDATED, data);
+      }
+      return { success: true, data };
+    } catch (err) {
+      debugError('[UsageHandlers] Failed to fetch Copilot usage:', err);
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Unknown error',
