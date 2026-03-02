@@ -5,7 +5,7 @@
 <h1 align="center">Agent Terminal</h1>
 
 <p align="center">
-  AI-powered terminal with Insights chat, ClickUp integration, time tracking, and git worktree support.
+  AI-powered terminal with multi-agent support, task management (ClickUp &amp; Jira), Insights chat, and git worktree workflows.
 </p>
 
 <p align="center">
@@ -23,16 +23,17 @@
 ## Features
 
 - **Multi-project terminals** — Organize terminals by project with tabbed navigation and split panes
-- **Insights (AI Chat)** — Chat with Claude or GitHub Copilot from a dedicated view with session history and model selection
-- **ClickUp integration** — Pick tasks, create branches, track status, and post comments directly from the terminal
-- **Time tracking** — Start/stop timer per terminal, automatically synced to ClickUp
+- **Multi-agent support** — Plug-in architecture for AI agents: Claude, GitHub Copilot, Gemini, Aider, and Qwen — each with model selection and usage tracking
+- **Insights (AI Chat)** — Chat with any supported agent from a dedicated view with session history and model selection
+- **Task management** — Unified provider system supporting **ClickUp** and **Jira** — pick tasks, create branches, track status, and post comments
+- **Time tracking** — Start/stop timer per terminal, automatically synced to your task manager
+- **Copilot usage tracking** — Monitor GitHub Copilot session turns, model info, and context window data
 - **Git worktree support** — Isolate task work in dedicated worktrees, auto-cleanup on completion
 - **Task completion flow** — Create PR, push to remote, or merge locally when done
 - **Mobile remote control** — Control your terminal from your phone via QR code pairing
-- **Usage tracking** — Monitor API usage with a built-in usage indicator
+- **Usage tracking** — Monitor API usage across all providers with a built-in usage indicator
 - **Auto-update** — Get notified and update to the latest version from GitHub Releases
 - **Terminal persistence** — Sessions restore automatically on restart
-- **Claude AI mode** — Invoke Claude directly in the terminal for AI-assisted development
 
 ## Download
 
@@ -51,7 +52,7 @@ Get the latest release for your platform:
 | Action | Shortcut |
 |--------|----------|
 | Terminals view | `Ctrl+T` |
-| ClickUp view | `Ctrl+K` |
+| Tasks view | `Ctrl+K` |
 | Insights view | `Ctrl+I` |
 | Settings view | `Ctrl+S` |
 | New terminal | `Ctrl+N` |
@@ -102,19 +103,32 @@ The GitHub Actions workflow builds for all platforms and publishes to [Releases]
 
 ## Configuration
 
-### ClickUp
+### Task Manager (ClickUp / Jira)
 
 1. Open **Settings** (`Ctrl+S`)
-2. Enter your ClickUp API token, Team ID, and List ID
-3. Test the connection
-4. Tasks will appear in the ClickUp view (`Ctrl+K`)
+2. Select a provider — **ClickUp** or **Jira**
+3. Enter the required credentials (API token, Team/Project ID, etc.)
+4. Test the connection
+5. Tasks will appear in the Tasks view (`Ctrl+K`)
 
 ### Insights (AI Chat)
 
 1. Open **Insights** (`Ctrl+I`)
-2. Select a provider — **Claude** (requires `claude` CLI) or **GitHub Copilot** (requires `gh copilot`)
-3. Choose a model (Opus, Sonnet, or Haiku for Claude)
+2. Select a provider — **Claude**, **GitHub Copilot**, **Gemini**, **Aider**, or **Qwen**
+3. Choose a model from the provider's available models
 4. Start a conversation — sessions are saved and can be resumed from the sidebar
+
+### AI Agents
+
+Agent Terminal supports multiple AI agent providers through a plug-in system. Each agent can be invoked directly in a terminal session:
+
+| Agent | CLI Requirement | Capabilities |
+|-------|----------------|--------------|
+| Claude | `claude` CLI | Chat, code generation, session resume |
+| GitHub Copilot | `gh copilot` | Chat, usage tracking |
+| Gemini | `gemini` CLI | Chat, code generation |
+| Aider | `aider` CLI | Code editing, git integration |
+| Qwen | `qwen` CLI | Chat, code generation |
 
 ### Terminal
 
@@ -140,22 +154,33 @@ src/
 │   ├── updater.ts       # Auto-update logic
 │   ├── ipc/             # IPC handlers
 │   │   ├── terminal-handlers.ts
-│   │   ├── clickup-handlers.ts
+│   │   ├── task-manager-handlers.ts   # Unified task manager (ClickUp / Jira)
 │   │   ├── git-handlers.ts
 │   │   ├── insights-handlers.ts
 │   │   ├── usage-handlers.ts
 │   │   ├── project-handlers.ts
-│   │   └── settings-handlers.ts
+│   │   ├── settings-handlers.ts
+│   │   └── providers/                 # Plug-in providers
+│   │       ├── clickup.ts             # ClickUp task provider
+│   │       ├── jira.ts                # Jira task provider
+│   │       ├── agent-registry.ts      # Agent discovery & registry
+│   │       ├── agent-types.ts         # IAgentProvider interface
+│   │       └── agents/                # AI agent implementations
+│   │           ├── claude-agent.ts
+│   │           ├── copilot-agent.ts
+│   │           ├── gemini-agent.ts
+│   │           ├── aider-agent.ts
+│   │           └── qwen-agent.ts
 │   ├── terminal/        # PTY management & persistence
 │   ├── insights/        # AI chat executor & session storage
-│   ├── usage/           # API usage tracking service
+│   ├── usage/           # API & Copilot usage tracking services
 │   └── project/         # Project data store
 ├── renderer/            # React frontend
 │   ├── App.tsx          # Root component & shortcuts
 │   ├── components/
 │   │   ├── terminal/    # TerminalView, TerminalPanel
 │   │   ├── layout/      # Sidebar, ProjectTabBar
-│   │   ├── clickup/     # ClickUpView
+│   │   ├── tasks/       # TasksView (multi-provider)
 │   │   ├── insights/    # InsightsView, ChatMessage, ModelSelector, SessionSidebar
 │   │   ├── usage/       # UsageIndicator
 │   │   ├── settings/    # SettingsView
