@@ -6,6 +6,7 @@ import { registerTerminalHandlers } from './ipc/terminal-handlers';
 import { registerTaskManagerHandlers } from './ipc/task-manager-handlers';
 import { registerSettingsHandlers } from './ipc/settings-handlers';
 import { registerUsageHandlers, stopUsagePolling } from './ipc/usage-handlers';
+import { registerServiceStatusHandlers, stopServiceStatusPolling } from './ipc/service-status-handlers';
 import { registerProjectHandlers } from './ipc/project-handlers';
 import { registerGitHandlers } from './ipc/git-handlers';
 import { registerInsightsHandlers, cleanupInsights } from './ipc/insights-handlers';
@@ -106,6 +107,7 @@ app.whenReady().then(() => {
   registerProjectHandlers(ipcMain, getWindow);
   registerGitHandlers(ipcMain);
   registerInsightsHandlers(ipcMain, getWindow);
+  registerServiceStatusHandlers(ipcMain, getWindow);
   initAutoUpdater(getWindow);
 
   // Open external links
@@ -126,6 +128,7 @@ app.on('before-quit', async () => {
   trackShutdown();
   cleanupInsights();
   stopUsagePolling();
+  stopServiceStatusPolling();
   if (terminalManager) {
     // Save output buffers before killing terminals so they can be restored
     saveOutputBuffers(terminalManager.getOutputBuffers());

@@ -77,6 +77,9 @@ export const IPC_CHANNELS = {
   UPDATE_DOWNLOAD: 'update:download',
   UPDATE_INSTALL: 'update:install',
   UPDATE_STATUS: 'update:status',
+  // Service Status
+  SERVICE_STATUS_REQUEST: 'service-status:request',
+  SERVICE_STATUS_UPDATED: 'service-status:updated',
   // App
   OPEN_EXTERNAL: 'app:open-external',
 } as const;

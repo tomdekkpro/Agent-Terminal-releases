@@ -131,6 +131,14 @@ const electronAPI = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.INSIGHTS_STREAM_EVENT, handler);
   },
 
+  // Service Status
+  requestServiceStatus: () => ipcRenderer.invoke(IPC_CHANNELS.SERVICE_STATUS_REQUEST),
+  onServiceStatusUpdated: (callback: (summary: any) => void) => {
+    const handler = (_event: any, summary: any) => callback(summary);
+    ipcRenderer.on(IPC_CHANNELS.SERVICE_STATUS_UPDATED, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.SERVICE_STATUS_UPDATED, handler);
+  },
+
   // Settings
   getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET_ALL),
   getSetting: (key: string) => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET, key),

@@ -237,6 +237,31 @@ export interface InsightsStreamEvent {
   error?: string;
 }
 
+// Service Status
+export type ServiceStatusLevel = 'operational' | 'degraded' | 'major' | 'critical' | 'unknown';
+
+export interface ServiceStatusIncident {
+  name: string;
+  impact: string;
+  status: string;
+  url?: string;
+  updatedAt: string;
+}
+
+export interface ProviderStatus {
+  provider: AgentProviderId;
+  level: ServiceStatusLevel;
+  description: string;
+  incidents: ServiceStatusIncident[];
+  components?: { name: string; status: string }[];
+  lastChecked: number;
+}
+
+export interface ServiceStatusSummary {
+  providers: Record<string, ProviderStatus>;
+  worstLevel: ServiceStatusLevel;
+}
+
 export const DEFAULT_SETTINGS: AppSettings = {
   terminalFontFamily: 'Cascadia Code, Consolas, Courier New, monospace',
   terminalFontSize: 14,

@@ -10,6 +10,7 @@ import { useSettingsStore } from '../../stores/settings-store';
 import { useProjectStore } from '../../stores/project-store';
 import { TerminalPanel } from './TerminalPanel';
 import { UsageIndicator } from '../usage/UsageIndicator';
+import { ServiceStatusIndicator } from '../status/ServiceStatusIndicator';
 import { cn } from '../../../shared/utils';
 import type { TaskManagerTask, TaskManagerList, TerminalTask, AgentProviderMeta } from '../../../shared/types';
 
@@ -1199,6 +1200,7 @@ export function TerminalView({ projectId }: TerminalViewProps) {
               </button>
             </div>
           )}
+          <ServiceStatusIndicator />
           <UsageIndicator />
           <span className="text-xs text-[var(--text-muted)]">
             {terminals.filter((t) => t.status !== 'exited').length}/
