@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { CopilotProvider, InsightsMessage, InsightsModel, InsightsSession } from '../../shared/types';
 import { sendMessage, abortStream, abortAllStreams } from '../insights/chat-executor';
+import { track } from '../analytics/analytics-service';
 import {
   listSessions,
   getSession,
@@ -52,6 +53,7 @@ export function registerInsightsHandlers(
           updatedAt: now,
         };
         await saveSession(session);
+        track('insights_session_created', { provider: session.provider || 'claude', model });
         return { success: true, data: session };
       } catch (error) {
         return { success: false, error: error instanceof Error ? error.message : 'Failed to create session' };

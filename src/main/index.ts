@@ -12,6 +12,7 @@ import { registerInsightsHandlers, cleanupInsights } from './ipc/insights-handle
 import { initAutoUpdater } from './updater';
 import { IPC_CHANNELS } from '../shared/constants';
 import { registerAllAgents } from './ipc/providers/agents';
+import { initAnalytics, trackShutdown } from './analytics/analytics-service';
 
 let mainWindow: BrowserWindow | null = null;
 let terminalManager: TerminalManager | null = null;
@@ -90,6 +91,9 @@ app.whenReady().then(() => {
   // Register all agent providers before anything else
   registerAllAgents();
 
+  // Initialize anonymous analytics (respects user opt-out)
+  initAnalytics();
+
   terminalManager = new TerminalManager(getWindow);
 
   registerTerminalHandlers(ipcMain, terminalManager, getWindow);
@@ -116,6 +120,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', async () => {
+  trackShutdown();
   cleanupInsights();
   stopUsagePolling();
   if (terminalManager) {

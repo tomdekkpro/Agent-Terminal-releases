@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { DEFAULT_SETTINGS, type AppSettings } from '../../shared/types';
+import { track } from '../analytics/analytics-service';
 
 const SETTINGS_DIR = join(app.getPath('userData'), 'config');
 const SETTINGS_FILE = join(SETTINGS_DIR, 'settings.json');
@@ -93,6 +94,15 @@ export function registerSettingsHandlers(ipcMain: IpcMain): void {
     const settings = getSettings();
     const updated = { ...settings, ...updates };
     saveSettings(updated);
+
+    // Track non-sensitive setting changes
+    const trackedKeys = ['taskManagerProvider', 'defaultAgentProvider', 'theme', 'telemetryEnabled'] as const;
+    for (const key of trackedKeys) {
+      if (key in updates) {
+        track('setting_changed', { key, value: String(updates[key as keyof AppSettings]) });
+      }
+    }
+
     return { success: true, data: updated };
   });
 }

@@ -1,6 +1,7 @@
 import { dialog, type IpcMain, type BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../shared/constants';
 import * as ProjectStore from '../project/project-store';
+import { track } from '../analytics/analytics-service';
 
 export function registerProjectHandlers(
   ipcMain: IpcMain,
@@ -12,6 +13,7 @@ export function registerProjectHandlers(
 
   ipcMain.handle(IPC_CHANNELS.PROJECT_ADD, async (_event, projectPath: string, name?: string) => {
     const project = ProjectStore.addProject(projectPath, name);
+    track('project_added', { projectCount: ProjectStore.getProjects().length });
     return { success: true, data: project };
   });
 

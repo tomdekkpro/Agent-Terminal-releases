@@ -229,6 +229,26 @@ export function SettingsView() {
                   </button>
                 </div>
 
+                {/* Anonymous Analytics */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-sm text-[var(--text-secondary)]">Anonymous Analytics</label>
+                    <p className="text-[10px] text-[var(--text-muted)] mt-0.5">Help improve Agent Terminal by sending anonymous usage data. No personal data is collected.</p>
+                  </div>
+                  <button
+                    onClick={() => handleChange('telemetryEnabled', !localSettings.telemetryEnabled)}
+                    className={cn(
+                      'w-10 h-5 rounded-full transition-colors relative shrink-0',
+                      localSettings.telemetryEnabled !== false ? 'bg-[var(--accent)]' : 'bg-[var(--border)]'
+                    )}
+                  >
+                    <div className={cn(
+                      'w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform',
+                      localSettings.telemetryEnabled !== false ? 'translate-x-5' : 'translate-x-0.5'
+                    )} />
+                  </button>
+                </div>
+
                 {/* Check for Updates */}
                 <div>
                   <button

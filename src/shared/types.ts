@@ -133,6 +133,7 @@ export interface AppSettings {
   theme: 'dark' | 'light';
   // General
   autoUpdate: boolean;
+  telemetryEnabled: boolean;
   // Agent providers
   defaultAgentProvider: AgentProviderId;
   agentModels: Partial<Record<AgentProviderId, string>>;
@@ -257,6 +258,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   maxTerminals: 12,
   theme: 'dark',
   autoUpdate: true,
+  telemetryEnabled: true,
   defaultAgentProvider: 'claude',
   agentModels: {
     claude: 'claude-opus-4-6',

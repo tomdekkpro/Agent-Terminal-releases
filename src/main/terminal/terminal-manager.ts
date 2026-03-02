@@ -7,6 +7,7 @@ import * as PtyManager from './pty-manager';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { debugLog, debugError } from '../../shared/utils';
 import { agentRegistry } from '../ipc/providers/agent-registry';
+import { track } from '../analytics/analytics-service';
 
 /** Encode a project path to match Claude Code's project directory naming */
 function encodeProjectPath(cwd: string): string {
@@ -81,6 +82,8 @@ export class TerminalManager {
 
       this.terminals.set(id, terminal);
 
+      track('terminal_created', { terminalCount: this.terminals.size });
+
       PtyManager.setupPtyHandlers(
         terminal,
         this.terminals,
@@ -108,6 +111,7 @@ export class TerminalManager {
     try {
       this.terminals.delete(id);
       PtyManager.killPty(terminal);
+      track('terminal_closed', { terminalCount: this.terminals.size });
       return { success: true };
     } catch (error) {
       return {
@@ -176,6 +180,11 @@ export class TerminalManager {
     const agentCmd = provider.buildInvokeCommand(options);
     const command = `${cdCmd}${separator}${clearCmd}${separator}${agentCmd}\r`;
     PtyManager.writeToPty(terminal, command);
+
+    track('agent_invoked', {
+      agent: agentId,
+      model: options.model || '',
+    });
 
     const win = this.getWindow();
     if (win && !win.isDestroyed()) {
