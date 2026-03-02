@@ -12,7 +12,7 @@ import { registerInsightsHandlers, cleanupInsights } from './ipc/insights-handle
 import { initAutoUpdater } from './updater';
 import { IPC_CHANNELS } from '../shared/constants';
 import { registerAllAgents } from './ipc/providers/agents';
-import { initAnalytics, trackShutdown } from './analytics/analytics-service';
+import { initAnalytics, trackAppStarted, trackShutdown } from './analytics/analytics-service';
 
 let mainWindow: BrowserWindow | null = null;
 let terminalManager: TerminalManager | null = null;
@@ -87,12 +87,15 @@ function getWindow(): BrowserWindow | null {
   return mainWindow;
 }
 
+// Initialize analytics BEFORE app.whenReady() per Aptabase docs
+initAnalytics();
+
 app.whenReady().then(() => {
   // Register all agent providers before anything else
   registerAllAgents();
 
-  // Initialize anonymous analytics (respects user opt-out)
-  initAnalytics();
+  // Track app launch after ready
+  trackAppStarted();
 
   terminalManager = new TerminalManager(getWindow);
 
