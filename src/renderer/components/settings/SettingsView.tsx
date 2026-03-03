@@ -185,7 +185,7 @@ export function SettingsView() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-[var(--text-primary)]">Agent Terminal</p>
-                      <p className="text-xs text-[var(--text-muted)] mt-0.5">Version 1.4.0</p>
+                      <p className="text-xs text-[var(--text-muted)] mt-0.5">Version 1.4.1</p>
                       <p className="text-[10px] text-[var(--text-muted)] mt-1">&copy; {new Date().getFullYear()} Tom. All rights reserved.</p>
                     </div>
                     {updateStatus === 'up-to-date' && (
@@ -482,6 +482,20 @@ export function SettingsView() {
                       />
                     </div>
 
+                    <div>
+                      <label className="block text-sm text-[var(--text-secondary)] mb-1.5">List IDs (Optional)</label>
+                      <textarea
+                        value={localSettings.clickupListIds}
+                        onChange={(e) => handleChange('clickupListIds', e.target.value)}
+                        placeholder="e.g. 901234567890, 901234567891"
+                        rows={3}
+                        className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] resize-none"
+                      />
+                      <p className="text-[10px] text-[var(--text-muted)] mt-1">
+                        Comma-separated List IDs. If your token doesn't have permission to auto-discover lists, enter them manually here.
+                      </p>
+                    </div>
+
                     <div className="p-3 rounded-lg bg-[var(--bg-card)] border border-[var(--border)]">
                       <h4 className="text-xs font-semibold text-[var(--text-primary)] mb-2">Setup Instructions</h4>
                       <ol className="text-[11px] text-[var(--text-muted)] space-y-1 list-decimal list-inside">
@@ -489,8 +503,8 @@ export function SettingsView() {
                         <li>Generate a personal API token</li>
                         <li>Paste it in the API Token field above</li>
                         <li>Enter your Workspace ID (found in URL)</li>
+                        <li>If your token can't auto-discover lists, enter List IDs manually above</li>
                         <li>Click "Test Connection" to verify</li>
-                        <li>Lists are loaded automatically in the Tasks view</li>
                       </ol>
                     </div>
                   </>

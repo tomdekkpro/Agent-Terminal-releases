@@ -72,7 +72,22 @@ export class ClickUpProvider implements ITaskManagerProvider {
     }
   }
 
+  private parseManualListIds(settings: AppSettings): TaskManagerList[] {
+    if (!settings.clickupListIds) return [];
+    return settings.clickupListIds
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .map((id) => ({ id, name: `List ${id}` }));
+  }
+
   async getLists(settings: AppSettings): Promise<ProviderResult<TaskManagerList[]>> {
+    // If manual list IDs are configured, use them directly
+    const manualLists = this.parseManualListIds(settings);
+    if (manualLists.length > 0) {
+      return { success: true, data: manualLists };
+    }
+
     try {
       const teamId = settings.clickupWorkspaceId;
       if (!teamId) throw new Error('Workspace ID not configured');

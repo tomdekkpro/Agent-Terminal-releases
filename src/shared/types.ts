@@ -121,6 +121,7 @@ export interface AppSettings {
   clickupApiKey: string;
   clickupWorkspaceId: string;
   clickupListId: string;
+  clickupListIds: string;
   jiraEmail: string;
   jiraApiToken: string;
   jiraDomain: string;
@@ -274,6 +275,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   clickupApiKey: '',
   clickupWorkspaceId: '',
   clickupListId: '',
+  clickupListIds: '',
   jiraEmail: '',
   jiraApiToken: '',
   jiraDomain: '',
