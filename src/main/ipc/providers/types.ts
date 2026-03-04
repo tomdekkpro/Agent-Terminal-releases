@@ -9,13 +9,14 @@ export interface ITaskManagerProvider {
 
   getLists(settings: AppSettings): Promise<ProviderResult<TaskManagerList[]>>;
 
-  getTasks(settings: AppSettings, listId?: string): Promise<ProviderResult<TaskManagerTask[]>>;
+  getTasks(settings: AppSettings, listId?: string, page?: number): Promise<ProviderResult<TaskManagerTask[]>>;
 
   searchTasks(
     settings: AppSettings,
     query: string,
     filters?: { statuses?: string[]; assignees?: string[]; includeClosed?: boolean },
     listId?: string,
+    page?: number,
   ): Promise<ProviderResult<TaskManagerTask[]>>;
 
   getTask(settings: AppSettings, taskId: string): Promise<ProviderResult<TaskManagerTask>>;

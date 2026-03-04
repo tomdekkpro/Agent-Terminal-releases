@@ -142,12 +142,13 @@ export class JiraProvider implements ITaskManagerProvider {
     }
   }
 
-  async getTasks(settings: AppSettings): Promise<ProviderResult<TaskManagerTask[]>> {
+  async getTasks(settings: AppSettings, _listId?: string, page: number = 0): Promise<ProviderResult<TaskManagerTask[]>> {
     try {
       const projectKey = settings.jiraProjectKey;
       if (!projectKey) throw new Error('Jira project key not configured');
 
-      const cacheKey = `jira-tasks-${projectKey}`;
+      const startAt = page * 100;
+      const cacheKey = `jira-tasks-${projectKey}-${page}`;
       const cached = taskCache.get(cacheKey);
       if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
         return { success: true, data: cached.data };
@@ -156,7 +157,7 @@ export class JiraProvider implements ITaskManagerProvider {
       const jql = encodeURIComponent(`project=${projectKey} ORDER BY updated DESC`);
       const data = await jiraFetch(
         settings,
-        `/rest/api/3/search?jql=${jql}&maxResults=100&fields=summary,status,priority,assignee,labels,created,updated,description`,
+        `/rest/api/3/search?jql=${jql}&startAt=${startAt}&maxResults=100&fields=summary,status,priority,assignee,labels,created,updated,description`,
       );
 
       const tasks = (data.issues || []).map((i: any) => normalizeJiraTask(i, settings.jiraDomain));
@@ -174,11 +175,14 @@ export class JiraProvider implements ITaskManagerProvider {
     settings: AppSettings,
     query: string,
     filters?: { statuses?: string[]; assignees?: string[]; includeClosed?: boolean },
+    _listId?: string,
+    page: number = 0,
   ): Promise<ProviderResult<TaskManagerTask[]>> {
     try {
       const projectKey = settings.jiraProjectKey;
       if (!projectKey) throw new Error('Jira project key not configured');
 
+      const startAt = page * 100;
       const jqlParts: string[] = [`project=${projectKey}`];
 
       if (query.trim()) {
@@ -196,7 +200,7 @@ export class JiraProvider implements ITaskManagerProvider {
 
       const jql = encodeURIComponent(`${jqlParts.join(' AND ')} ORDER BY updated DESC`);
 
-      const cacheKey = `jira-search-${jql}`;
+      const cacheKey = `jira-search-${jql}-${page}`;
       const cached = taskCache.get(cacheKey);
       if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
         return { success: true, data: cached.data };
@@ -204,7 +208,7 @@ export class JiraProvider implements ITaskManagerProvider {
 
       const data = await jiraFetch(
         settings,
-        `/rest/api/3/search?jql=${jql}&maxResults=100&fields=summary,status,priority,assignee,labels,created,updated,description`,
+        `/rest/api/3/search?jql=${jql}&startAt=${startAt}&maxResults=100&fields=summary,status,priority,assignee,labels,created,updated,description`,
       );
 
       const tasks = (data.issues || []).map((i: any) => normalizeJiraTask(i, settings.jiraDomain));

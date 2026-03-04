@@ -28,10 +28,10 @@ export function registerTaskManagerHandlers(ipcMain: IpcMain): void {
     return provider.getLists(getSettings());
   });
 
-  ipcMain.handle(IPC_CHANNELS.TASK_MANAGER_GET_TASKS, async (_event, listId?: string) => {
+  ipcMain.handle(IPC_CHANNELS.TASK_MANAGER_GET_TASKS, async (_event, listId?: string, page?: number) => {
     const provider = getActiveProvider();
     if (!provider) return { success: true, data: [] };
-    return provider.getTasks(getSettings(), listId);
+    return provider.getTasks(getSettings(), listId, page);
   });
 
   ipcMain.handle(
@@ -41,10 +41,11 @@ export function registerTaskManagerHandlers(ipcMain: IpcMain): void {
       query: string,
       filters?: { statuses?: string[]; assignees?: string[]; includeClosed?: boolean },
       listId?: string,
+      page?: number,
     ) => {
       const provider = getActiveProvider();
       if (!provider) return { success: true, data: [] };
-      return provider.searchTasks(getSettings(), query, filters, listId);
+      return provider.searchTasks(getSettings(), query, filters, listId, page);
     },
   );
 

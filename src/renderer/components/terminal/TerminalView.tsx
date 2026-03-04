@@ -4,6 +4,7 @@ import {
   Plus, X, Bot, Terminal as TerminalIcon, Search,
   Columns2, ChevronDown, GitBranch, GitMerge, GitPullRequest,
   ArrowLeft, FolderGit2, Folder, Upload, Download, RefreshCw, List,
+  Filter, Loader2,
 } from 'lucide-react';
 import { useTerminalStore } from '../../stores/terminal-store';
 import { useSettingsStore } from '../../stores/settings-store';
@@ -13,6 +14,8 @@ import { UsageIndicator } from '../usage/UsageIndicator';
 import { ServiceStatusIndicator } from '../status/ServiceStatusIndicator';
 import { cn } from '../../../shared/utils';
 import type { TaskManagerTask, TaskManagerList, TerminalTask, AgentProviderMeta } from '../../../shared/types';
+
+const PICKER_PAGE_SIZE = 100;
 
 /** Task Picker Modal - shown when creating terminal with task */
 function TaskPickerModal({
@@ -27,17 +30,30 @@ function TaskPickerModal({
   const settings = useSettingsStore((s) => s.settings);
   const [tasks, setTasks] = useState<TaskManagerTask[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [searching, setSearching] = useState(false);
   const [search, setSearch] = useState('');
   const [selectedTask, setSelectedTask] = useState<TaskManagerTask | null>(null);
   const [includeClosed, setIncludeClosed] = useState(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
+  // Infinite scroll state
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
   // Lists
   const [lists, setLists] = useState<TaskManagerList[]>([]);
   const [selectedListId, setSelectedListId] = useState<string>('');
   const [showListDropdown, setShowListDropdown] = useState(false);
   const listDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Filters
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
+  const [filterAssignees, setFilterAssignees] = useState<string[]>([]);
+  const [availableStatuses, setAvailableStatuses] = useState<{ name: string; color: string }[]>([]);
+  const [availableAssignees, setAvailableAssignees] = useState<{ id: string; username: string }[]>([]);
 
   // Close list dropdown on outside click
   useEffect(() => {
@@ -64,20 +80,67 @@ function TaskPickerModal({
     });
   }, []);
 
-  const doSearch = useCallback(async (query: string, closed: boolean, listId?: string) => {
+  const buildFilters = useCallback(() => ({
+    statuses: filterStatuses.length > 0 ? filterStatuses : undefined,
+    assignees: filterAssignees.length > 0 ? filterAssignees : undefined,
+    includeClosed,
+  }), [filterStatuses, filterAssignees, includeClosed]);
+
+  const doSearch = useCallback(async (query: string, filters: { statuses?: string[]; assignees?: string[]; includeClosed?: boolean }, listId?: string, pageNum: number = 0) => {
     const result = await window.electronAPI.searchTaskManagerTasks(
       query,
-      { includeClosed: closed },
+      filters,
       listId,
+      pageNum,
     );
-    if (result.success && result.data) setTasks(result.data);
+    if (result.success && result.data) {
+      const data = result.data as TaskManagerTask[];
+      if (pageNum === 0) {
+        setTasks(data);
+        // Collect available statuses/assignees from first page
+        const statusMap = new Map<string, string>();
+        const assigneeMap = new Map<string, string>();
+        for (const t of data) {
+          if (t.status?.name) statusMap.set(t.status.name, t.status.color);
+          for (const a of t.assignees || []) {
+            assigneeMap.set(String(a.id), a.username);
+          }
+        }
+        setAvailableStatuses(Array.from(statusMap, ([name, color]) => ({ name, color })));
+        setAvailableAssignees(Array.from(assigneeMap, ([id, username]) => ({ id, username })));
+      } else {
+        setTasks((prev) => [...prev, ...data]);
+        // Merge new statuses/assignees
+        const statusMap = new Map<string, string>();
+        const assigneeMap = new Map<string, string>();
+        for (const t of data) {
+          if (t.status?.name) statusMap.set(t.status.name, t.status.color);
+          for (const a of t.assignees || []) {
+            assigneeMap.set(String(a.id), a.username);
+          }
+        }
+        setAvailableStatuses((prev) => {
+          const merged = new Map(prev.map((s) => [s.name, s.color]));
+          statusMap.forEach((color, name) => merged.set(name, color));
+          return Array.from(merged, ([name, color]) => ({ name, color }));
+        });
+        setAvailableAssignees((prev) => {
+          const merged = new Map(prev.map((a) => [a.id, a.username]));
+          assigneeMap.forEach((username, id) => merged.set(id, username));
+          return Array.from(merged, ([id, username]) => ({ id, username }));
+        });
+      }
+      setHasMore(data.length >= PICKER_PAGE_SIZE);
+    }
   }, []);
 
   // Load tasks when selectedListId is set
   useEffect(() => {
     if (!selectedListId) return;
     setLoading(true);
-    doSearch('', includeClosed, selectedListId)
+    setPage(0);
+    setHasMore(true);
+    doSearch('', buildFilters(), selectedListId, 0)
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [selectedListId]);
@@ -88,30 +151,73 @@ function TaskPickerModal({
     };
   }, []);
 
+  const loadNextPage = useCallback(async () => {
+    if (!hasMore || loadingMore || loading) return;
+    const nextPage = page + 1;
+    setLoadingMore(true);
+    setPage(nextPage);
+    await doSearch(search, buildFilters(), selectedListId, nextPage);
+    setLoadingMore(false);
+  }, [hasMore, loadingMore, loading, page, search, buildFilters, selectedListId, doSearch]);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el || !hasMore || loadingMore || loading) return;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
+      loadNextPage();
+    }
+  }, [hasMore, loadingMore, loading, loadNextPage]);
+
   const handleSearchChange = useCallback((value: string) => {
     setSearch(value);
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
 
     searchTimerRef.current = setTimeout(async () => {
       setSearching(true);
+      setPage(0);
+      setHasMore(true);
       try {
-        await doSearch(value, includeClosed, selectedListId);
+        await doSearch(value, buildFilters(), selectedListId, 0);
       } catch {
         // Keep existing tasks on error
       } finally {
         setSearching(false);
       }
     }, 300);
-  }, [doSearch, includeClosed, selectedListId]);
+  }, [doSearch, buildFilters, selectedListId]);
 
-  // Re-fetch when includeClosed changes
+  // Re-fetch when filters change
   useEffect(() => {
     if (!selectedListId) return;
     setSearching(true);
-    doSearch(search, includeClosed, selectedListId)
+    setPage(0);
+    setHasMore(true);
+    doSearch(search, buildFilters(), selectedListId, 0)
       .catch(() => {})
       .finally(() => setSearching(false));
-  }, [includeClosed]);
+  }, [includeClosed, filterStatuses, filterAssignees]);
+
+  const activeFilterCount = (filterStatuses.length > 0 ? 1 : 0)
+    + (filterAssignees.length > 0 ? 1 : 0)
+    + (includeClosed ? 1 : 0);
+
+  const toggleStatus = useCallback((status: string) => {
+    setFilterStatuses((prev) =>
+      prev.includes(status) ? prev.filter((s) => s !== status) : [...prev, status]
+    );
+  }, []);
+
+  const toggleAssignee = useCallback((id: string) => {
+    setFilterAssignees((prev) =>
+      prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id]
+    );
+  }, []);
+
+  const clearFilters = useCallback(() => {
+    setFilterStatuses([]);
+    setFilterAssignees([]);
+    setIncludeClosed(false);
+  }, []);
 
   const selectedList = lists.find((l) => l.id === selectedListId);
   const listsBySpace = lists.reduce<Record<string, TaskManagerList[]>>((acc, list) => {
@@ -120,8 +226,6 @@ function TaskPickerModal({
     acc[key].push(list);
     return acc;
   }, {});
-
-  const filtered = tasks;
 
   // Step 2: task selected — choose worktree or current branch
   if (selectedTask) {
@@ -254,83 +358,180 @@ function TaskPickerModal({
             </div>
           )}
 
-          <div className="relative">
-            {searching ? (
-              <RefreshCw className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--accent)] animate-spin" />
-            ) : (
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
-            )}
-            <input
-              type="text"
-              autoFocus
-              value={search}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder="Search by title or task ID..."
-              className="w-full pl-9 pr-4 py-2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
-            />
+          {/* Search + filter button */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              {searching ? (
+                <RefreshCw className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--accent)] animate-spin" />
+              ) : (
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
+              )}
+              <input
+                type="text"
+                autoFocus
+                value={search}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                placeholder="Search by title or task ID..."
+                className="w-full pl-9 pr-4 py-2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
+              />
+            </div>
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={cn(
+                'flex items-center gap-1 px-2.5 py-2 rounded-lg border text-xs transition-colors',
+                showFilters || activeFilterCount > 0
+                  ? 'bg-[var(--accent)]/10 border-[var(--accent)]/30 text-[var(--accent)]'
+                  : 'bg-[var(--bg-secondary)] border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)]'
+              )}
+            >
+              <Filter className="w-3.5 h-3.5" />
+              {activeFilterCount > 0 && <span>{activeFilterCount}</span>}
+            </button>
           </div>
-          <label className="flex items-center gap-2 mt-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={includeClosed}
-              onChange={(e) => setIncludeClosed(e.target.checked)}
-              className="rounded border-[var(--border)] accent-[var(--accent)]"
-            />
-            <span className="text-[11px] text-[var(--text-muted)]">Include closed tasks</span>
-          </label>
+
+          {/* Filter panel */}
+          {showFilters && (
+            <div className="mt-2 p-3 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg space-y-3">
+              {/* Include closed toggle */}
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeClosed}
+                  onChange={(e) => setIncludeClosed(e.target.checked)}
+                  className="rounded border-[var(--border)] accent-[var(--accent)]"
+                />
+                <span className="text-[11px] text-[var(--text-muted)]">Include closed tasks</span>
+              </label>
+
+              {/* Status filter */}
+              {availableStatuses.length > 0 && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] mb-1.5">Status</div>
+                  <div className="flex flex-wrap gap-1">
+                    {availableStatuses.map((s) => (
+                      <button
+                        key={s.name}
+                        onClick={() => toggleStatus(s.name)}
+                        className={cn(
+                          'text-[11px] px-2 py-0.5 rounded-full border transition-colors',
+                          filterStatuses.includes(s.name)
+                            ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
+                            : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)]'
+                        )}
+                      >
+                        <span className="inline-block w-1.5 h-1.5 rounded-full mr-1" style={{ backgroundColor: s.color }} />
+                        {s.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Assignee filter */}
+              {availableAssignees.length > 0 && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] mb-1.5">Assignee</div>
+                  <div className="flex flex-wrap gap-1">
+                    {availableAssignees.map((a) => (
+                      <button
+                        key={a.id}
+                        onClick={() => toggleAssignee(a.id)}
+                        className={cn(
+                          'text-[11px] px-2 py-0.5 rounded-full border transition-colors',
+                          filterAssignees.includes(a.id)
+                            ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
+                            : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)]'
+                        )}
+                      >
+                        {a.username}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Clear filters */}
+              {activeFilterCount > 0 && (
+                <button
+                  onClick={clearFilters}
+                  className="flex items-center gap-1 text-[11px] text-[var(--error)] hover:underline"
+                >
+                  <X className="w-3 h-3" />
+                  Clear all filters
+                </button>
+              )}
+            </div>
+          )}
         </div>
-        <div className="flex-1 overflow-y-auto p-2">
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto p-2"
+        >
           {loading ? (
             <div className="flex items-center justify-center h-24 text-[var(--text-muted)]">
               <span className="text-sm">Loading tasks...</span>
             </div>
-          ) : filtered.length === 0 ? (
+          ) : tasks.length === 0 ? (
             <div className="flex items-center justify-center h-24 text-[var(--text-muted)]">
               <span className="text-sm">No tasks found</span>
             </div>
           ) : (
-            filtered.map((task) => (
-              <button
-                key={task.id}
-                onClick={() => setSelectedTask(task)}
-                className="w-full text-left p-3 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-2 h-2 rounded-full shrink-0"
-                    style={{ backgroundColor: task.status.color }}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      {task.customId && (
-                        <span className="text-[10px] font-mono text-[var(--text-muted)] shrink-0">
-                          {task.customId}
+            <>
+              {tasks.map((task) => (
+                <button
+                  key={task.id}
+                  onClick={() => setSelectedTask(task)}
+                  className="w-full text-left p-3 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: task.status.color }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        {task.customId && (
+                          <span className="text-[10px] font-mono text-[var(--text-muted)] shrink-0">
+                            {task.customId}
+                          </span>
+                        )}
+                        <span className="text-sm text-[var(--text-primary)] truncate">
+                          {task.name}
                         </span>
-                      )}
-                      <span className="text-sm text-[var(--text-primary)] truncate">
-                        {task.name}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span
-                        className="text-[10px] px-1.5 py-0.5 rounded-full"
-                        style={{
-                          backgroundColor: `${task.status.color}20`,
-                          color: task.status.color,
-                        }}
-                      >
-                        {task.status.name}
-                      </span>
-                      {task.priority && (
-                        <span className="text-[10px] text-[var(--text-muted)]">
-                          {task.priority.name}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded-full"
+                          style={{
+                            backgroundColor: `${task.status.color}20`,
+                            color: task.status.color,
+                          }}
+                        >
+                          {task.status.name}
                         </span>
-                      )}
+                        {task.priority && (
+                          <span className="text-[10px] text-[var(--text-muted)]">
+                            {task.priority.name}
+                          </span>
+                        )}
+                        {task.assignees && task.assignees.length > 0 && (
+                          <span className="text-[10px] text-[var(--text-muted)]">
+                            {task.assignees.map(a => a.username).join(', ')}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
+                </button>
+              ))}
+              {loadingMore && (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="w-4 h-4 animate-spin text-[var(--text-muted)]" />
+                  <span className="text-xs text-[var(--text-muted)] ml-2">Loading more...</span>
                 </div>
-              </button>
-            ))
+              )}
+            </>
           )}
         </div>
         <div className="p-3 border-t border-[var(--border)] flex items-center justify-between">

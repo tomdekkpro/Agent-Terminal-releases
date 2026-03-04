@@ -63,9 +63,9 @@ const electronAPI = {
   // Task Manager
   checkTaskManagerConnection: () => ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_CHECK_CONNECTION),
   getTaskManagerLists: () => ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_GET_LISTS),
-  getTaskManagerTasks: (listId?: string) => ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_GET_TASKS, listId),
-  searchTaskManagerTasks: (query: string, filters?: { statuses?: string[]; assignees?: string[]; includeClosed?: boolean }, listId?: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_SEARCH_TASKS, query, filters, listId),
+  getTaskManagerTasks: (listId?: string, page?: number) => ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_GET_TASKS, listId, page),
+  searchTaskManagerTasks: (query: string, filters?: { statuses?: string[]; assignees?: string[]; includeClosed?: boolean }, listId?: string, page?: number) =>
+    ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_SEARCH_TASKS, query, filters, listId, page),
   getTaskManagerTask: (taskId: string) => ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_GET_TASK, taskId),
   createTaskManagerTask: (listId: string, data: any) => ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_CREATE_TASK, listId, data),
   postTaskComment: (taskId: string, comment: string) => ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_POST_COMMENT, taskId, comment),

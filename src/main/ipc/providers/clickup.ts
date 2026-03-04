@@ -6,6 +6,7 @@ const CLICKUP_API_BASE = 'https://api.clickup.com/api/v2';
 // 30-second cache
 const taskCache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL = 30000;
+const MAX_SEARCH_PAGES = 10;
 
 async function clickUpFetch(apiKey: string, endpoint: string, options: RequestInit = {}) {
   if (!apiKey) throw new Error('ClickUp API key not configured');
@@ -127,12 +128,12 @@ export class ClickUpProvider implements ITaskManagerProvider {
     }
   }
 
-  async getTasks(settings: AppSettings, listId?: string): Promise<ProviderResult<TaskManagerTask[]>> {
+  async getTasks(settings: AppSettings, listId?: string, page: number = 0): Promise<ProviderResult<TaskManagerTask[]>> {
     try {
       const targetListId = listId || settings.clickupListId;
       if (!targetListId) throw new Error('No list ID configured');
 
-      const cacheKey = `tasks-${targetListId}`;
+      const cacheKey = `tasks-${targetListId}-${page}`;
       const cached = taskCache.get(cacheKey);
       if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
         return { success: true, data: cached.data.map(normalizeClickUpTask) };
@@ -140,10 +141,11 @@ export class ClickUpProvider implements ITaskManagerProvider {
 
       const data = await clickUpFetch(
         settings.clickupApiKey,
-        `/list/${targetListId}/task?include_closed=true&subtasks=true`,
+        `/list/${targetListId}/task?include_closed=true&subtasks=true&page=${page}`,
       );
-      taskCache.set(cacheKey, { data: data.tasks, timestamp: Date.now() });
-      return { success: true, data: (data.tasks || []).map(normalizeClickUpTask) };
+      const tasks = data.tasks || [];
+      taskCache.set(cacheKey, { data: tasks, timestamp: Date.now() });
+      return { success: true, data: tasks.map(normalizeClickUpTask) };
     } catch (error) {
       return {
         success: false,
@@ -157,6 +159,7 @@ export class ClickUpProvider implements ITaskManagerProvider {
     query: string,
     filters?: { statuses?: string[]; assignees?: string[]; includeClosed?: boolean },
     listId?: string,
+    page: number = 0,
   ): Promise<ProviderResult<TaskManagerTask[]>> {
     try {
       const targetListId = listId || settings.clickupListId;
@@ -173,7 +176,45 @@ export class ClickUpProvider implements ITaskManagerProvider {
         for (const a of filters.assignees) params.append('assignees[]', a);
       }
 
-      const cacheKey = `search-${targetListId}-${params.toString()}`;
+      const hasQuery = !!query.trim();
+
+      // When there's a text query, fetch all pages (ClickUp has no server-side text search).
+      // When just browsing/filtering, use single-page pagination.
+      if (hasQuery) {
+        const allCacheKey = `search-all-${targetListId}-${params.toString()}`;
+        const cached = taskCache.get(allCacheKey);
+        let allTasks: any[];
+
+        if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+          allTasks = cached.data;
+        } else {
+          allTasks = [];
+          for (let p = 0; p < MAX_SEARCH_PAGES; p++) {
+            const data = await clickUpFetch(
+              settings.clickupApiKey,
+              `/list/${targetListId}/task?${params.toString()}&page=${p}`,
+            );
+            const pageTasks = data.tasks || [];
+            allTasks.push(...pageTasks);
+            if (pageTasks.length === 0) break;
+          }
+          taskCache.set(allCacheKey, { data: allTasks, timestamp: Date.now() });
+        }
+
+        const q = query.toLowerCase();
+        const filtered = allTasks.filter(
+          (t: any) =>
+            t.name?.toLowerCase().includes(q) ||
+            t.custom_id?.toLowerCase().includes(q) ||
+            t.text_content?.toLowerCase().includes(q) ||
+            t.description?.toLowerCase().includes(q),
+        );
+
+        return { success: true, data: filtered.map(normalizeClickUpTask) };
+      }
+
+      // No text query — single page for infinite scroll
+      const cacheKey = `search-${targetListId}-${params.toString()}-${page}`;
       const cached = taskCache.get(cacheKey);
       let tasks: any[];
 
@@ -182,19 +223,10 @@ export class ClickUpProvider implements ITaskManagerProvider {
       } else {
         const data = await clickUpFetch(
           settings.clickupApiKey,
-          `/list/${targetListId}/task?${params.toString()}`,
+          `/list/${targetListId}/task?${params.toString()}&page=${page}`,
         );
         tasks = data.tasks || [];
         taskCache.set(cacheKey, { data: tasks, timestamp: Date.now() });
-      }
-
-      if (query.trim()) {
-        const q = query.toLowerCase();
-        tasks = tasks.filter(
-          (t: any) =>
-            t.name?.toLowerCase().includes(q) ||
-            t.custom_id?.toLowerCase().includes(q),
-        );
       }
 
       return { success: true, data: tasks.map(normalizeClickUpTask) };

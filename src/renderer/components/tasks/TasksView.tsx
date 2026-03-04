@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { RefreshCw, Search, ExternalLink, AlertCircle, CheckSquare, Filter, X, ChevronDown, List } from 'lucide-react';
+import { RefreshCw, Search, ExternalLink, AlertCircle, CheckSquare, Filter, X, ChevronDown, List, Loader2 } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settings-store';
 import { cn } from '../../../shared/utils';
 import type { TaskManagerTask, TaskManagerList } from '../../../shared/types';
@@ -10,32 +10,71 @@ type SearchFilters = {
   includeClosed?: boolean;
 };
 
+const PAGE_SIZE = 100;
+const FILTERS_STORAGE_KEY = 'taskview-filters';
+
+type PersistedFilters = {
+  filterStatuses: string[];
+  filterAssignees: string[];
+  includeClosed: boolean;
+  selectedListId: string;
+};
+
+function loadPersistedFilters(): Partial<PersistedFilters> {
+  try {
+    const raw = localStorage.getItem(FILTERS_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  return {};
+}
+
+function savePersistedFilters(filters: PersistedFilters) {
+  try {
+    localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(filters));
+  } catch { /* ignore */ }
+}
+
 export function TasksView() {
   const settings = useSettingsStore((s) => s.settings);
+
+  // Restore persisted filters on initial render
+  const persisted = useRef(loadPersistedFilters()).current;
+
   const [tasks, setTasks] = useState<TaskManagerTask[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTask, setSelectedTask] = useState<TaskManagerTask | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
+  // Infinite scroll state
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
   // Lists
   const [lists, setLists] = useState<TaskManagerList[]>([]);
-  const [selectedListId, setSelectedListId] = useState<string>('');
+  const [selectedListId, setSelectedListId] = useState<string>(persisted.selectedListId || '');
   const [listsLoading, setListsLoading] = useState(false);
   const [showListDropdown, setShowListDropdown] = useState(false);
   const listDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Filters
+  // Filters (restored from localStorage)
   const [showFilters, setShowFilters] = useState(false);
-  const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
-  const [filterAssignees, setFilterAssignees] = useState<string[]>([]);
-  const [includeClosed, setIncludeClosed] = useState(false);
+  const [filterStatuses, setFilterStatuses] = useState<string[]>(persisted.filterStatuses || []);
+  const [filterAssignees, setFilterAssignees] = useState<string[]>(persisted.filterAssignees || []);
+  const [includeClosed, setIncludeClosed] = useState(persisted.includeClosed || false);
 
   // Collected unique statuses/assignees from loaded tasks
   const [availableStatuses, setAvailableStatuses] = useState<{ name: string; color: string }[]>([]);
   const [availableAssignees, setAvailableAssignees] = useState<{ id: string; username: string }[]>([]);
+
+  // Persist filters whenever they change
+  useEffect(() => {
+    savePersistedFilters({ filterStatuses, filterAssignees, includeClosed, selectedListId });
+  }, [filterStatuses, filterAssignees, includeClosed, selectedListId]);
 
   // Close list dropdown on outside click
   useEffect(() => {
@@ -71,40 +110,88 @@ export function TasksView() {
     includeClosed,
   }), [filterStatuses, filterAssignees, includeClosed]);
 
-  const doSearch = useCallback(async (query: string, filters: SearchFilters, listId?: string) => {
+  const updateAvailableFilters = useCallback((data: TaskManagerTask[]) => {
+    const statusMap = new Map<string, string>();
+    const assigneeMap = new Map<string, string>();
+    for (const t of data) {
+      if (t.status?.name) statusMap.set(t.status.name, t.status.color);
+      for (const a of t.assignees || []) {
+        assigneeMap.set(String(a.id), a.username);
+      }
+    }
+    setAvailableStatuses((prev) => {
+      const merged = new Map(prev.map((s) => [s.name, s.color]));
+      statusMap.forEach((color, name) => merged.set(name, color));
+      return Array.from(merged, ([name, color]) => ({ name, color }));
+    });
+    setAvailableAssignees((prev) => {
+      const merged = new Map(prev.map((a) => [a.id, a.username]));
+      assigneeMap.forEach((username, id) => merged.set(id, username));
+      return Array.from(merged, ([id, username]) => ({ id, username }));
+    });
+  }, []);
+
+  const doSearch = useCallback(async (query: string, filters: SearchFilters, listId?: string, pageNum: number = 0) => {
     try {
-      const result = await window.electronAPI.searchTaskManagerTasks(query, filters, listId);
+      const result = await window.electronAPI.searchTaskManagerTasks(query, filters, listId, pageNum);
       if (result.success) {
         const data = result.data || [];
-        setTasks(data);
 
-        // Collect unique statuses and assignees for filter dropdowns
-        const statusMap = new Map<string, string>();
-        const assigneeMap = new Map<string, string>();
-        for (const t of data) {
-          if (t.status?.name) statusMap.set(t.status.name, t.status.color);
-          for (const a of t.assignees || []) {
-            assigneeMap.set(String(a.id), a.username);
+        if (pageNum === 0) {
+          setTasks(data);
+          // Reset available filters from fresh data
+          const statusMap = new Map<string, string>();
+          const assigneeMap = new Map<string, string>();
+          for (const t of data) {
+            if (t.status?.name) statusMap.set(t.status.name, t.status.color);
+            for (const a of t.assignees || []) {
+              assigneeMap.set(String(a.id), a.username);
+            }
           }
+          setAvailableStatuses(Array.from(statusMap, ([name, color]) => ({ name, color })));
+          setAvailableAssignees(Array.from(assigneeMap, ([id, username]) => ({ id, username })));
+        } else {
+          setTasks((prev) => [...prev, ...data]);
+          updateAvailableFilters(data);
         }
-        setAvailableStatuses(Array.from(statusMap, ([name, color]) => ({ name, color })));
-        setAvailableAssignees(Array.from(assigneeMap, ([id, username]) => ({ id, username })));
+
+        setHasMore(data.length >= PAGE_SIZE);
       } else {
         setError(result.error || 'Failed to load tasks');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load tasks');
     }
-  }, []);
+  }, [updateAvailableFilters]);
 
   const loadTasks = useCallback(async () => {
     if (settings.taskManagerProvider === 'none') return;
     if (!selectedListId) return;
     setLoading(true);
     setError(null);
-    await doSearch(searchQuery, buildFilters(), selectedListId);
+    setPage(0);
+    setHasMore(true);
+    await doSearch(searchQuery, buildFilters(), selectedListId, 0);
     setLoading(false);
   }, [settings.taskManagerProvider, searchQuery, buildFilters, doSearch, selectedListId]);
+
+  const loadNextPage = useCallback(async () => {
+    if (!hasMore || loadingMore || loading) return;
+    const nextPage = page + 1;
+    setLoadingMore(true);
+    setPage(nextPage);
+    await doSearch(searchQuery, buildFilters(), selectedListId, nextPage);
+    setLoadingMore(false);
+  }, [hasMore, loadingMore, loading, page, searchQuery, buildFilters, selectedListId, doSearch]);
+
+  // Scroll handler for infinite scroll
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el || !hasMore || loadingMore || loading) return;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
+      loadNextPage();
+    }
+  }, [hasMore, loadingMore, loading, loadNextPage]);
 
   // Reload tasks when selected list changes
   useEffect(() => {
@@ -121,7 +208,9 @@ export function TasksView() {
     const filters = buildFilters();
     searchTimerRef.current = setTimeout(async () => {
       setSearching(true);
-      await doSearch(value, filters, selectedListId);
+      setPage(0);
+      setHasMore(true);
+      await doSearch(value, filters, selectedListId, 0);
       setSearching(false);
     }, 300);
   }, [buildFilters, doSearch, selectedListId]);
@@ -131,7 +220,9 @@ export function TasksView() {
     if (settings.taskManagerProvider === 'none' || !selectedListId) return;
     const filters = buildFilters();
     setSearching(true);
-    doSearch(searchQuery, filters, selectedListId).finally(() => setSearching(false));
+    setPage(0);
+    setHasMore(true);
+    doSearch(searchQuery, filters, selectedListId, 0).finally(() => setSearching(false));
   }, [filterStatuses, filterAssignees, includeClosed]);
 
   useEffect(() => {
@@ -193,7 +284,9 @@ export function TasksView() {
       <div className="h-12 bg-[var(--bg-secondary)] border-b border-[var(--border)] flex items-center px-4 justify-between drag-region">
         <h1 className="text-sm font-semibold text-[var(--text-primary)] no-drag">Tasks</h1>
         <div className="flex items-center gap-2 no-drag">
-          <span className="text-xs text-[var(--text-muted)]">{tasks.length} tasks</span>
+          <span className="text-xs text-[var(--text-muted)]">
+            {tasks.length} tasks{hasMore ? '+' : ''}
+          </span>
           <button
             onClick={loadTasks}
             disabled={loading}
@@ -370,7 +463,11 @@ export function TasksView() {
       </div>
 
       {/* Task list */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto"
+      >
         {error && (
           <div className="m-4 p-3 rounded-lg bg-[var(--error)]/10 border border-[var(--error)]/20 flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-[var(--error)] shrink-0" />
@@ -471,6 +568,14 @@ export function TasksView() {
                 )}
               </button>
             ))}
+
+            {/* Loading more spinner */}
+            {loadingMore && (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="w-4 h-4 animate-spin text-[var(--text-muted)]" />
+                <span className="text-xs text-[var(--text-muted)] ml-2">Loading more...</span>
+              </div>
+            )}
           </div>
         )}
       </div>
