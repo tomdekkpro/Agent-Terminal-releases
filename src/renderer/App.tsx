@@ -27,6 +27,17 @@ export default function App() {
   const tabOrder = useProjectStore((s) => s.tabOrder);
   const setActiveProject = useProjectStore((s) => s.setActiveProject);
 
+  // Prevent Electron from navigating when files are dropped outside a terminal
+  useEffect(() => {
+    const preventNav = (e: DragEvent) => { e.preventDefault(); };
+    document.addEventListener('dragover', preventNav);
+    document.addEventListener('drop', preventNav);
+    return () => {
+      document.removeEventListener('dragover', preventNav);
+      document.removeEventListener('drop', preventNav);
+    };
+  }, []);
+
   useEffect(() => {
     const viewKeys: Record<string, ViewType> = {
       t: 'terminals',

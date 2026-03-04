@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Bot, X, ExternalLink, GitBranch, GitMerge, Play, Square, Clock, Smartphone, Copy, Check, Eraser, ChevronDown } from 'lucide-react';
+import { Bot, X, ExternalLink, GitBranch, GitMerge, Play, Square, Clock, Smartphone, Copy, Check, Eraser, ChevronDown, ImagePlus, FileImage, File as FileIcon, Link } from 'lucide-react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -28,6 +28,7 @@ interface TerminalPanelProps {
   onInvokeAgent: (skipPermissions?: boolean) => void;
   onProviderChange: (provider: AgentProviderId) => void;
   onMergeComplete?: () => void;
+  onLinkTask?: () => void;
   onClose?: () => void;
   onFocus?: () => void;
 }
@@ -57,7 +58,7 @@ const TERMINAL_THEME = {
   brightWhite: '#f8fafc',
 };
 
-export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onInvokeAgent, onProviderChange, onMergeComplete, onClose, onFocus }: TerminalPanelProps) {
+export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onInvokeAgent, onProviderChange, onMergeComplete, onLinkTask, onClose, onFocus }: TerminalPanelProps) {
   const currentProvider = agentProviders.find((p) => p.id === terminal.agentProvider) || agentProviders[0];
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -67,6 +68,12 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onI
   const bufferRef = useRef<string[]>([]);
 
   const gpuAcceleration = useSettingsStore((s) => s.settings.terminalGpuAcceleration);
+
+  // Drag and drop state
+  const [isDragOver, setIsDragOver] = useState(false);
+  interface DroppedFile { name: string; path: string; isImage: boolean; thumbnailUrl?: string; }
+  const [droppedFiles, setDroppedFiles] = useState<DroppedFile[]>([]);
+  const droppedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Provider dropdown
   const [showProviderMenu, setShowProviderMenu] = useState(false);
@@ -345,6 +352,7 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onI
       bufferRef.current = [];
       rcBufferRef.current = null;
       if (rcTimeoutRef.current) { clearTimeout(rcTimeoutRef.current); rcTimeoutRef.current = null; }
+      if (droppedTimerRef.current) { clearTimeout(droppedTimerRef.current); droppedTimerRef.current = null; }
       if (initObserverRef.current) { initObserverRef.current.disconnect(); initObserverRef.current = null; }
       if (webglAddonRef.current) { webglAddonRef.current.dispose(); webglAddonRef.current = null; }
       if (fitAddonRef.current) { fitAddonRef.current.dispose(); fitAddonRef.current = null; }
@@ -396,6 +404,104 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onI
       .then(setQrDataUrl)
       .catch(() => setQrDataUrl(null));
   }, [remoteUrl]);
+
+  // Drag and drop — attach native DOM listeners with capture to intercept before xterm
+  const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg', '.ico']);
+
+  useEffect(() => {
+    const el = containerRef.current?.parentElement; // the outer wrapper div
+    if (!el) return;
+
+    let dragCounter = 0;
+
+    const onDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounter++;
+      if (e.dataTransfer?.types.includes('Files')) {
+        setIsDragOver(true);
+      }
+    };
+
+    const onDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    };
+
+    const onDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounter--;
+      if (dragCounter <= 0) {
+        dragCounter = 0;
+        setIsDragOver(false);
+      }
+    };
+
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(false);
+      dragCounter = 0;
+
+      const files = e.dataTransfer?.files;
+      if (!files || files.length === 0) return;
+
+      const collected: DroppedFile[] = [];
+      const pathStrings: string[] = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i] as File & { path?: string };
+        const filePath = file.path;
+        if (!filePath) continue;
+
+        const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase();
+        const isImage = IMAGE_EXTENSIONS.has(ext);
+
+        let thumbnailUrl: string | undefined;
+        if (isImage) {
+          thumbnailUrl = URL.createObjectURL(file);
+        }
+
+        collected.push({ name: file.name, path: filePath, isImage, thumbnailUrl });
+        pathStrings.push(filePath.includes(' ') ? `"${filePath}"` : filePath);
+      }
+
+      if (pathStrings.length === 0) return;
+
+      // Show dropped files toast
+      setDroppedFiles(collected);
+      if (droppedTimerRef.current) clearTimeout(droppedTimerRef.current);
+      droppedTimerRef.current = setTimeout(() => {
+        setDroppedFiles((prev) => {
+          for (const f of prev) {
+            if (f.thumbnailUrl) URL.revokeObjectURL(f.thumbnailUrl);
+          }
+          return [];
+        });
+      }, 4000);
+
+      // Paste file path(s) via xterm.paste() — this wraps text in bracketed paste
+      // sequences (\e[200~...\e[201~) so Claude Code and other CLI tools detect
+      // it as pasted content and can recognize image file paths
+      const text = pathStrings.join(' ');
+      if (xtermRef.current) {
+        xtermRef.current.paste(text);
+        xtermRef.current.focus();
+      }
+    };
+
+    // Use capture phase so we intercept before xterm's own handlers
+    el.addEventListener('dragenter', onDragEnter, true);
+    el.addEventListener('dragover', onDragOver, true);
+    el.addEventListener('dragleave', onDragLeave, true);
+    el.addEventListener('drop', onDrop, true);
+
+    return () => {
+      el.removeEventListener('dragenter', onDragEnter, true);
+      el.removeEventListener('dragover', onDragOver, true);
+      el.removeEventListener('dragleave', onDragLeave, true);
+      el.removeEventListener('drop', onDrop, true);
+    };
+  }, [terminal.id]);
 
   return (
     <div className="flex flex-col h-full relative" onClick={onFocus}>
@@ -510,6 +616,16 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onI
             >
               <GitMerge className="w-3.5 h-3.5" />
               {!isSplit && 'Complete'}
+            </button>
+          )}
+          {!terminal.task && onLinkTask && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onLinkTask(); }}
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-xs bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)]/20 transition-colors"
+              title="Link a task to this terminal"
+            >
+              <Link className="w-3 h-3" />
+              {!isSplit && 'Link Task'}
             </button>
           )}
           {!terminal.isClaudeMode && (
@@ -706,6 +822,47 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onI
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Drop overlay */}
+      {isDragOver && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#0f0f23]/80 backdrop-blur-sm border-2 border-dashed border-[var(--accent)] rounded-lg pointer-events-none">
+          <div className="flex flex-col items-center gap-3 text-[var(--accent)]">
+            <ImagePlus className="w-10 h-10 drop-shadow-lg" />
+            <span className="text-sm font-medium">Drop to paste file path</span>
+          </div>
+        </div>
+      )}
+
+      {/* Dropped files toast — shows image thumbnails + file names */}
+      {droppedFiles.length > 0 && (
+        <div className="absolute bottom-3 right-3 z-40 flex flex-col gap-2 animate-in slide-in-from-bottom-2 fade-in duration-200">
+          {droppedFiles.map((f, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-[#1a1a2e]/95 border border-[var(--accent)]/30 shadow-xl backdrop-blur-sm max-w-[320px]"
+            >
+              {f.isImage && f.thumbnailUrl ? (
+                <img
+                  src={f.thumbnailUrl}
+                  alt={f.name}
+                  className="w-10 h-10 rounded object-cover border border-white/10 shrink-0"
+                />
+              ) : (
+                <div className="w-10 h-10 rounded bg-[var(--accent)]/10 flex items-center justify-center shrink-0">
+                  <FileIcon className="w-5 h-5 text-[var(--accent)]" />
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="text-xs text-[var(--text-primary)] font-medium truncate">{f.name}</div>
+                <div className="text-[10px] text-[var(--text-muted)] truncate font-mono">{f.path}</div>
+              </div>
+              {f.isImage && (
+                <FileImage className="w-3.5 h-3.5 text-[var(--accent)] shrink-0 opacity-60" />
+              )}
+            </div>
+          ))}
         </div>
       )}
 

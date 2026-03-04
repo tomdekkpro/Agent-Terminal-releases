@@ -17,12 +17,14 @@ import type { TaskManagerTask, TaskManagerList, TerminalTask, AgentProviderMeta 
 
 const PICKER_PAGE_SIZE = 100;
 
-/** Task Picker Modal - shown when creating terminal with task */
+/** Task Picker Modal - shown when creating terminal with task or linking a task */
 function TaskPickerModal({
+  mode = 'new',
   onSelect,
   onCancel,
   onPlain,
 }: {
+  mode?: 'new' | 'link';
   onSelect: (task: TaskManagerTask, useWorktree: boolean) => void;
   onCancel: () => void;
   onPlain: () => void;
@@ -302,7 +304,7 @@ function TaskPickerModal({
       <div className="w-[480px] max-h-[70vh] bg-[var(--bg-card)] border border-[var(--border)] rounded-xl shadow-2xl flex flex-col overflow-hidden">
         <div className="p-4 border-b border-[var(--border)]">
           <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3">
-            Start Terminal with Task
+            {mode === 'link' ? 'Link Task to Terminal' : 'Start Terminal with Task'}
           </h2>
 
           {/* List selector */}
@@ -481,7 +483,7 @@ function TaskPickerModal({
               {tasks.map((task) => (
                 <button
                   key={task.id}
-                  onClick={() => setSelectedTask(task)}
+                  onClick={() => mode === 'link' ? onSelect(task, false) : setSelectedTask(task)}
                   className="w-full text-left p-3 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
                 >
                   <div className="flex items-center gap-3">
@@ -534,13 +536,15 @@ function TaskPickerModal({
             </>
           )}
         </div>
-        <div className="p-3 border-t border-[var(--border)] flex items-center justify-between">
-          <button
-            onClick={onPlain}
-            className="px-3 py-1.5 rounded-md text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
-          >
-            Plain Terminal (no task)
-          </button>
+        <div className={cn('p-3 border-t border-[var(--border)] flex items-center', mode === 'link' ? 'justify-end' : 'justify-between')}>
+          {mode !== 'link' && (
+            <button
+              onClick={onPlain}
+              className="px-3 py-1.5 rounded-md text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+            >
+              Plain Terminal (no task)
+            </button>
+          )}
           <button
             onClick={onCancel}
             className="px-3 py-1.5 rounded-md text-xs text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] transition-colors"
@@ -821,7 +825,8 @@ export function TerminalView({ projectId }: TerminalViewProps) {
   const updateTerminal = useTerminalStore((s) => s.updateTerminal);
 
   const [showTaskPicker, setShowTaskPicker] = useState(false);
-  const [taskPickerMode, setTaskPickerMode] = useState<'tab' | 'split'>('tab');
+  const [taskPickerMode, setTaskPickerMode] = useState<'tab' | 'split' | 'link'>('tab');
+  const [linkTargetTerminalId, setLinkTargetTerminalId] = useState<string | null>(null);
   const [showNewMenu, setShowNewMenu] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const newMenuRef = useRef<HTMLDivElement>(null);
@@ -999,25 +1004,48 @@ export function TerminalView({ projectId }: TerminalViewProps) {
       });
 
       if (task) {
-        setTimeout(async () => {
-          const settings = useSettingsStore.getState().settings;
-          const agentId = settings.defaultAgentProvider || 'claude';
-          const model = settings.agentModels?.[agentId] || undefined;
-          const invokeResult = await window.electronAPI.invokeAgent(terminal.id, agentId, { cwd, model });
-          if (invokeResult.success) {
-            useTerminalStore.getState().setClaudeMode(terminal.id, true);
-          } else {
-            setCliError(invokeResult.error || `Failed to start ${agentId}`);
-            setTimeout(() => setCliError(null), 8000);
-          }
-          setTimeout(() => {
-            const taskContext = buildTaskPrompt(task);
-            window.electronAPI.sendTerminalInput(terminal.id, taskContext);
-          }, 3000);
-        }, 500);
+        const taskContext = buildTaskPrompt(task);
+        useTerminalStore.getState().updateTerminal(terminal.id, {
+          pendingTaskPrompt: taskContext,
+        });
       }
     },
     [activeProject]
+  );
+
+  /** Link an existing terminal to a task (no PTY creation, no worktree) */
+  const linkTaskToTerminal = useCallback(
+    async (terminalId: string, task: TaskManagerTask) => {
+      const title = `${task.customId || task.id} - ${task.name}`.slice(0, 40);
+      const terminalTask: TerminalTask = {
+        id: task.id,
+        customId: task.customId,
+        name: task.name,
+        status: task.status.name,
+        statusColor: task.status.color,
+        url: task.url,
+        provider: task.provider,
+      };
+
+      useTerminalStore.getState().updateTerminal(terminalId, { title, task: terminalTask });
+
+      // Fetch existing tracked time as initial elapsed
+      try {
+        const timeResult = await window.electronAPI.getTaskTimeEntries(task.id);
+        if (timeResult.success && timeResult.data?.totalMs > 0) {
+          useTerminalStore.getState().updateTerminal(terminalId, {
+            timeTracking: { startedAt: null, elapsed: timeResult.data.totalMs },
+          });
+        }
+      } catch { /* non-critical */ }
+
+      // Store task prompt for when the user manually starts an agent
+      const taskContext = buildTaskPrompt(task);
+      useTerminalStore.getState().updateTerminal(terminalId, {
+        pendingTaskPrompt: taskContext,
+      });
+    },
+    []
   );
 
   /** Create a terminal in a new tab, optionally with a task */
@@ -1128,11 +1156,25 @@ export function TerminalView({ projectId }: TerminalViewProps) {
     });
     if (result.success) {
       useTerminalStore.getState().setClaudeMode(id, true);
+      // Send pending task prompt if available
+      const pendingPrompt = terminal.pendingTaskPrompt;
+      if (pendingPrompt) {
+        useTerminalStore.getState().updateTerminal(id, { pendingTaskPrompt: undefined });
+        setTimeout(() => {
+          window.electronAPI.sendTerminalInput(id, pendingPrompt);
+        }, 3000);
+      }
     } else {
       setCliError(result.error || `Failed to start ${agentId}`);
       setTimeout(() => setCliError(null), 8000);
     }
   }, [activeProject]);
+
+  const handleLinkTask = useCallback((terminalId: string) => {
+    setLinkTargetTerminalId(terminalId);
+    setTaskPickerMode('link');
+    setShowTaskPicker(true);
+  }, []);
 
   const handleProviderChange = useCallback((id: string, provider: import('../../../shared/types').AgentProviderId) => {
     useTerminalStore.getState().setAgentProvider(id, provider);
@@ -1315,15 +1357,22 @@ export function TerminalView({ projectId }: TerminalViewProps) {
       {/* Task picker modal */}
       {showTaskPicker && (
         <TaskPickerModal
+          mode={taskPickerMode === 'link' ? 'link' : 'new'}
           onSelect={(task, useWorktree) => {
             setShowTaskPicker(false);
-            taskPickerMode === 'split' ? createTerminalSplit(task, useWorktree) : createTerminalNewTab(task, useWorktree);
+            if (taskPickerMode === 'link' && linkTargetTerminalId) {
+              linkTaskToTerminal(linkTargetTerminalId, task);
+              setLinkTargetTerminalId(null);
+            } else {
+              taskPickerMode === 'split' ? createTerminalSplit(task, useWorktree) : createTerminalNewTab(task, useWorktree);
+            }
           }}
           onPlain={() => {
             setShowTaskPicker(false);
+            setLinkTargetTerminalId(null);
             taskPickerMode === 'split' ? createTerminalSplit() : createTerminalNewTab();
           }}
-          onCancel={() => setShowTaskPicker(false)}
+          onCancel={() => { setShowTaskPicker(false); setLinkTargetTerminalId(null); }}
         />
       )}
 
@@ -1654,6 +1703,7 @@ export function TerminalView({ projectId }: TerminalViewProps) {
                           onInvokeAgent={(skip) => handleInvokeAgent(terminal.id, skip)}
                           onProviderChange={(p) => handleProviderChange(terminal.id, p)}
                           onMergeComplete={() => handleMergeComplete(terminal)}
+                          onLinkTask={settings.taskManagerProvider !== 'none' ? () => handleLinkTask(terminal.id) : undefined}
                           onClose={() => handleCloseTerminal(terminal.id)}
                           onFocus={() => setActiveTerminal(terminal.id)}
                         />
@@ -1671,6 +1721,7 @@ export function TerminalView({ projectId }: TerminalViewProps) {
                         onInvokeAgent={(skip) => handleInvokeAgent(terminal.id, skip)}
                         onProviderChange={(p) => handleProviderChange(terminal.id, p)}
                         onMergeComplete={() => handleMergeComplete(terminal)}
+                        onLinkTask={settings.taskManagerProvider !== 'none' ? () => handleLinkTask(terminal.id) : undefined}
                       />
                     </div>
                   ))

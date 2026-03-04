@@ -29,6 +29,7 @@ export interface Terminal {
   worktreePath?: string;
   worktreeBranch?: string;
   timeTracking?: TimeTracking;
+  pendingTaskPrompt?: string;
 }
 
 // Output callback registry

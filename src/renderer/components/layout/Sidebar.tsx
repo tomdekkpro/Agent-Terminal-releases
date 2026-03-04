@@ -70,7 +70,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
 
       {/* Version at bottom */}
       <div className="mt-auto pt-2">
-        <span className="text-[9px] text-[var(--text-muted)] opacity-40">v1.5.0</span>
+        <span className="text-[9px] text-[var(--text-muted)] opacity-40">v1.5.1</span>
       </div>
     </div>
   );
