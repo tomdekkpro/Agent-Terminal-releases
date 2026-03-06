@@ -903,6 +903,19 @@ export function TerminalView({ projectId }: TerminalViewProps) {
     return () => clearInterval(interval);
   }, [refreshBranch]);
 
+  // Auto-fetch from remote when project becomes active (app start / project switch)
+  useEffect(() => {
+    if (!activeProject?.path) return;
+    (async () => {
+      try {
+        const result = await window.electronAPI.gitFetch(activeProject.path);
+        if (result.success && typeof result.behindCount === 'number') {
+          setBehindCount(result.behindCount);
+        }
+      } catch { /* ignore */ }
+    })();
+  }, [activeProject?.path]);
+
   const handleGitFetch = useCallback(async () => {
     if (!activeProject?.path || fetchStatus === 'loading') return;
     setFetchStatus('loading');
