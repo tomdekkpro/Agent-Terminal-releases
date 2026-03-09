@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { v4 as uuid } from 'uuid';
 import type { AgentProviderId, TerminalTask } from '../../shared/types';
 import { useSettingsStore } from './settings-store';
+import { useProjectStore } from './project-store';
 
 export type TerminalStatus = 'idle' | 'running' | 'claude-active' | 'exited';
 
@@ -149,7 +150,8 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     if (activeCount >= state.maxTerminals) return null;
 
     const groupId = uuid();
-    const defaultProvider = useSettingsStore.getState().settings.defaultAgentProvider || 'claude';
+    const project = projectId ? useProjectStore.getState().projects.find(p => p.id === projectId) : undefined;
+    const defaultProvider = project?.agentProvider || useSettingsStore.getState().settings.defaultAgentProvider || 'claude';
     const newTerminal: Terminal = {
       id: uuid(),
       groupId,
@@ -178,7 +180,8 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     if (activeCount >= state.maxTerminals) return null;
     if (!state.activeGroupId) return null;
 
-    const defaultProvider = useSettingsStore.getState().settings.defaultAgentProvider || 'claude';
+    const project = projectId ? useProjectStore.getState().projects.find(p => p.id === projectId) : undefined;
+    const defaultProvider = project?.agentProvider || useSettingsStore.getState().settings.defaultAgentProvider || 'claude';
     const newTerminal: Terminal = {
       id: uuid(),
       groupId: state.activeGroupId,

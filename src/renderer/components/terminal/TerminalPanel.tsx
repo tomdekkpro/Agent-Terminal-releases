@@ -9,6 +9,7 @@ import { registerOutputCallback, unregisterOutputCallback, getAndClearSavedBuffe
 import { useSettingsStore } from '../../stores/settings-store';
 import type { AgentProviderId, AgentProviderMeta } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
+import { SkillsDropdown } from './SkillsDropdown';
 
 /** Format milliseconds to HH:MM:SS */
 function formatElapsed(ms: number): string {
@@ -25,8 +26,10 @@ interface TerminalPanelProps {
   isActive: boolean;
   isSplit?: boolean;
   agentProviders: AgentProviderMeta[];
+  skills?: import('../../../shared/types').ProjectSkill[];
   onInvokeAgent: (skipPermissions?: boolean) => void;
   onProviderChange: (provider: AgentProviderId) => void;
+  onInvokeSkill?: (skill: import('../../../shared/types').ProjectSkill) => void;
   onMergeComplete?: () => void;
   onLinkTask?: () => void;
   onClose?: () => void;
@@ -63,7 +66,7 @@ const TERMINAL_THEME = {
   brightWhite: '#f8fafc',
 };
 
-export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onInvokeAgent, onProviderChange, onMergeComplete, onLinkTask, onClose, onFocus, onDragHandleStart, onDragHandleEnd, isDraggedOver }: TerminalPanelProps) {
+export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, skills, onInvokeAgent, onProviderChange, onInvokeSkill, onMergeComplete, onLinkTask, onClose, onFocus, onDragHandleStart, onDragHandleEnd, isDraggedOver }: TerminalPanelProps) {
   const currentProvider = agentProviders.find((p) => p.id === terminal.agentProvider) || agentProviders[0];
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -677,6 +680,10 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onI
                   </div>
                 )}
               </div>
+              {/* Skills dropdown */}
+              {skills && skills.length > 0 && onInvokeSkill && (
+                <SkillsDropdown skills={skills} onInvokeSkill={onInvokeSkill} />
+              )}
               {/* Start button */}
               <button
                 onClick={(e) => { e.stopPropagation(); onInvokeAgent(); }}

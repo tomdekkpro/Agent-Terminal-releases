@@ -183,12 +183,26 @@ export interface CopilotUsageData {
 }
 
 // Project Management
+export interface ProjectSkill {
+  id: string;
+  name: string;
+  description?: string;
+  prompt: string;
+  agentProvider?: AgentProviderId;
+  icon?: string;
+  color?: string;
+}
+
 export interface Project {
   id: string;
   name: string;
   path: string;
   createdAt: string;
   updatedAt: string;
+  agentProvider?: AgentProviderId;
+  agentModel?: string;
+  agentConfig?: Record<string, string>;
+  skills?: ProjectSkill[];
 }
 
 export interface ProjectTabState {

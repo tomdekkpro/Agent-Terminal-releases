@@ -1,8 +1,10 @@
 import { useCallback, useState, useRef, useEffect } from 'react';
-import { FolderOpen, Plus, X, ChevronDown, GripVertical } from 'lucide-react';
+import { FolderOpen, Plus, X, ChevronDown, GripVertical, Settings } from 'lucide-react';
 import { useProjectStore } from '../../stores/project-store';
 import { useTerminalStore } from '../../stores/terminal-store';
 import { cn } from '../../../shared/utils';
+import type { AgentProviderMeta } from '../../../shared/types';
+import { ProjectSettingsModal } from '../project/ProjectSettingsModal';
 
 export function ProjectTabBar() {
   const projects = useProjectStore((s) => s.projects);
@@ -17,7 +19,17 @@ export function ProjectTabBar() {
   const reorderTabs = useProjectStore((s) => s.reorderTabs);
 
   const [showDropdown, setShowDropdown] = useState(false);
+  const [settingsProjectId, setSettingsProjectId] = useState<string | null>(null);
+  const [agentProviders, setAgentProviders] = useState<AgentProviderMeta[]>([]);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Load agent providers when settings modal opens
+  useEffect(() => {
+    if (!settingsProjectId) return;
+    window.electronAPI.getAgentProviders?.()
+      .then((providers: AgentProviderMeta[]) => setAgentProviders(providers))
+      .catch(() => {});
+  }, [settingsProjectId]);
 
   // Drag state
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -157,6 +169,13 @@ export function ProjectTabBar() {
             <span className="text-[9px] text-[var(--text-muted)] opacity-0 group-hover:opacity-60 shrink-0 ml-0.5">{index + 1}</span>
           )}
           <button
+            className="w-4 h-4 shrink-0 rounded opacity-0 group-hover:opacity-100 flex items-center justify-center hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all"
+            onClick={(e) => { e.stopPropagation(); setSettingsProjectId(project.id); }}
+            title="Project settings"
+          >
+            <Settings className="w-3 h-3" />
+          </button>
+          <button
             className="w-4 h-4 shrink-0 rounded opacity-0 group-hover:opacity-100 flex items-center justify-center hover:bg-[var(--error)]/20 hover:text-[var(--error)] text-[var(--text-muted)] transition-all"
             onClick={(e) => handleCloseTab(e, project.id)}
             title="Close project tab"
@@ -221,6 +240,18 @@ export function ProjectTabBar() {
           </div>
         )}
       </div>
+
+      {/* Project settings modal */}
+      {settingsProjectId && (() => {
+        const p = projects.find((proj) => proj.id === settingsProjectId);
+        return p ? (
+          <ProjectSettingsModal
+            project={p}
+            agentProviders={agentProviders}
+            onClose={() => setSettingsProjectId(null)}
+          />
+        ) : null;
+      })()}
     </div>
   );
 }

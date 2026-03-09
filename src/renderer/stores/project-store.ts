@@ -13,6 +13,7 @@ interface ProjectState {
   addProject: () => Promise<Project | null>;
   addProjectByPath: (path: string, name?: string) => Promise<Project | null>;
   removeProject: (id: string) => Promise<void>;
+  updateProject: (id: string, updates: Partial<Project>) => Promise<void>;
   openProjectTab: (projectId: string) => void;
   closeProjectTab: (projectId: string) => void;
   setActiveProject: (projectId: string | null) => void;
@@ -154,6 +155,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       };
     });
     saveTabStateDebounced(get());
+  },
+
+  updateProject: async (id: string, updates: Partial<Project>) => {
+    try {
+      const result = await window.electronAPI.updateProject(id, updates);
+      if (result.success && result.data) {
+        set((state) => ({
+          projects: state.projects.map((p) => (p.id === id ? result.data : p)),
+        }));
+      }
+    } catch {
+      // ignore
+    }
   },
 
   openProjectTab: (projectId: string) => {

@@ -1171,7 +1171,8 @@ export function TerminalView({ projectId }: TerminalViewProps) {
     if (!terminal) return;
     const agentId = terminal.agentProvider;
     const settings = useSettingsStore.getState().settings;
-    const model = settings.agentModels?.[agentId] || undefined;
+    // Project model override > app-wide model
+    const model = activeProject?.agentModel || settings.agentModels?.[agentId] || undefined;
     const result = await window.electronAPI.invokeAgent(id, agentId, {
       cwd: activeProject?.path,
       skipPermissions,
@@ -1205,6 +1206,27 @@ export function TerminalView({ projectId }: TerminalViewProps) {
   const handleProviderChange = useCallback((id: string, provider: import('../../../shared/types').AgentProviderId) => {
     useTerminalStore.getState().setAgentProvider(id, provider);
   }, []);
+
+  const projectSkills = activeProject?.skills || [];
+
+  const handleInvokeSkill = useCallback(async (terminalId: string, skill: import('../../../shared/types').ProjectSkill) => {
+    const terminal = useTerminalStore.getState().getTerminal(terminalId);
+    if (!terminal) return;
+
+    // Override provider if skill specifies one
+    if (skill.agentProvider && skill.agentProvider !== terminal.agentProvider) {
+      useTerminalStore.getState().setAgentProvider(terminalId, skill.agentProvider);
+    }
+
+    if (!terminal.isClaudeMode) {
+      // Store skill prompt as pending, then invoke agent
+      useTerminalStore.getState().updateTerminal(terminalId, { pendingTaskPrompt: skill.prompt });
+      await handleInvokeAgent(terminalId);
+    } else {
+      // Agent already running — send prompt directly
+      window.electronAPI.sendTerminalInput(terminalId, skill.prompt + '\n');
+    }
+  }, [handleInvokeAgent]);
 
   const [mergeStatus, setMergeStatus] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [mergeTarget, setMergeTarget] = useState<{
@@ -1784,8 +1806,10 @@ export function TerminalView({ projectId }: TerminalViewProps) {
                           isActive={activeTerminalId === terminal.id}
                           isSplit={true}
                           agentProviders={agentProviders}
+                          skills={projectSkills}
                           onInvokeAgent={(skip) => handleInvokeAgent(terminal.id, skip)}
                           onProviderChange={(p) => handleProviderChange(terminal.id, p)}
+                          onInvokeSkill={(skill) => handleInvokeSkill(terminal.id, skill)}
                           onMergeComplete={() => handleMergeComplete(terminal)}
                           onLinkTask={settings.taskManagerProvider !== 'none' ? () => handleLinkTask(terminal.id) : undefined}
                           onClose={() => handleCloseTerminal(terminal.id)}
@@ -1813,8 +1837,10 @@ export function TerminalView({ projectId }: TerminalViewProps) {
                         terminal={terminal}
                         isActive={isCurrentGroup}
                         agentProviders={agentProviders}
+                        skills={projectSkills}
                         onInvokeAgent={(skip) => handleInvokeAgent(terminal.id, skip)}
                         onProviderChange={(p) => handleProviderChange(terminal.id, p)}
+                        onInvokeSkill={(skill) => handleInvokeSkill(terminal.id, skill)}
                         onMergeComplete={() => handleMergeComplete(terminal)}
                         onLinkTask={settings.taskManagerProvider !== 'none' ? () => handleLinkTask(terminal.id) : undefined}
                       />

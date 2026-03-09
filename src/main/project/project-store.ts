@@ -97,12 +97,16 @@ export function removeProject(projectId: string): boolean {
   return true;
 }
 
-export function updateProject(projectId: string, updates: Partial<Pick<Project, 'name'>>): Project | null {
+export function updateProject(projectId: string, updates: Partial<Pick<Project, 'name' | 'agentProvider' | 'agentModel' | 'agentConfig' | 'skills'>>): Project | null {
   const store = loadStore();
   const project = store.projects.find((p) => p.id === projectId);
   if (!project) return null;
 
   if (updates.name) project.name = updates.name;
+  if (updates.agentProvider !== undefined) project.agentProvider = updates.agentProvider || undefined;
+  if (updates.agentModel !== undefined) project.agentModel = updates.agentModel || undefined;
+  if (updates.agentConfig !== undefined) project.agentConfig = updates.agentConfig;
+  if (updates.skills !== undefined) project.skills = updates.skills;
   project.updatedAt = new Date().toISOString();
 
   saveStore();
