@@ -108,6 +108,12 @@ export const IPC_CHANNELS = {
   TEAM_JOIN_SESSION: 'team:join-session',
   TEAM_LEAVE_SESSION: 'team:leave-session',
   TEAM_SEND_SESSION_MESSAGE: 'team:send-session-message',
+  // QC Testing
+  QC_GENERATE_TESTS: 'qc:generate-tests',
+  QC_RUN_TESTS: 'qc:run-tests',
+  QC_RUN_SINGLE_TEST: 'qc:run-single-test',
+  QC_ABORT: 'qc:abort',
+  QC_EVENT: 'qc:event',
   // App
   OPEN_EXTERNAL: 'app:open-external',
 } as const;

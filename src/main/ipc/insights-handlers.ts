@@ -236,6 +236,7 @@ export function registerInsightsHandlers(
         if (updates.title !== undefined) session.title = updates.title;
         if (updates.shared !== undefined) session.shared = updates.shared;
         if (updates.participants !== undefined) session.participants = updates.participants;
+        if (updates.qcTask !== undefined) session.qcTask = updates.qcTask;
 
         // If messages are provided (for adding status/spec cards), append them
         if (updates.messages && updates.messages.length > session.messages.length) {

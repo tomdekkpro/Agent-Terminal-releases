@@ -189,6 +189,21 @@ const electronAPI = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.TEAM_EVENT, handler);
   },
 
+  // QC Testing
+  qcGenerateTests: (sessionId: string, title: string, description: string, targetUrl: string, model: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.QC_GENERATE_TESTS, sessionId, title, description, targetUrl, model),
+  qcRunTests: (sessionId: string, model: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.QC_RUN_TESTS, sessionId, model),
+  qcRunSingleTest: (sessionId: string, testCaseId: string, model: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.QC_RUN_SINGLE_TEST, sessionId, testCaseId, model),
+  qcAbort: (sessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.QC_ABORT, sessionId),
+  onQCEvent: (callback: (event: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.QC_EVENT, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.QC_EVENT, handler);
+  },
+
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
 

@@ -36,6 +36,7 @@ export async function listSessions(): Promise<InsightsSessionMeta[]> {
         pinned: session.pinned,
         mode: session.mode,
         discussionStatus: session.discussionStatus,
+        qcStatus: session.qcTask?.status,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
       });

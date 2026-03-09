@@ -26,6 +26,7 @@ interface InsightsState {
   selectSession: (id: string) => Promise<void>;
   createSession: (model: InsightsModel, projectPath?: string, provider?: AgentProviderId, copilotModel?: string) => Promise<InsightsSession | null>;
   createRoundTableSession: (model: InsightsModel, personaIds: string[], projectPath?: string, provider?: AgentProviderId, copilotModel?: string) => Promise<InsightsSession | null>;
+  createQCSession: (model: InsightsModel, projectPath?: string, provider?: AgentProviderId, copilotModel?: string) => Promise<InsightsSession | null>;
   deleteSession: (id: string) => Promise<void>;
   renameSession: (id: string, title: string) => Promise<void>;
   sendMessage: (content: string, model?: InsightsModel, copilotModel?: string) => Promise<void>;
@@ -125,6 +126,33 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
           activePersonaIndex: 0,
           discussionStatus: 'discussing',
           title: 'Round Table Discussion',
+        });
+        if (updateResult.success) {
+          set({
+            activeSession: updateResult.data,
+            streamingText: '',
+            streamingPersonaId: null,
+            error: null,
+            selectedProvider: session.provider || 'claude',
+          });
+          await get().loadSessions();
+          return updateResult.data;
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  },
+
+  createQCSession: async (model, projectPath?, provider?, copilotModel?) => {
+    try {
+      const result = await window.electronAPI.insightsCreateSession(model, projectPath, provider, copilotModel);
+      if (result.success) {
+        const session = result.data;
+        const updateResult = await window.electronAPI.insightsUpdateSession(session.id, {
+          mode: 'qc',
+          title: 'QC Testing',
         });
         if (updateResult.success) {
           set({

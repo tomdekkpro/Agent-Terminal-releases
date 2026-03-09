@@ -237,6 +237,42 @@ export interface Persona {
 
 export type DiscussionStatus = 'discussing' | 'spec-ready' | 'implementing' | 'reviewing' | 'completed';
 
+// ─── QC Testing ─────────────────────────────────────────────────
+
+export interface QCTestStep {
+  id: string;
+  order: number;
+  action: string;
+  expected: string;
+  actual?: string;
+  screenshot?: string; // base64 data URI or file path
+  status: 'pending' | 'passed' | 'failed' | 'skipped';
+}
+
+export interface QCTestCase {
+  id: string;
+  name: string;
+  description: string;
+  steps: QCTestStep[];
+  status: 'pending' | 'running' | 'passed' | 'failed' | 'error';
+  errorMessage?: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export interface QCTask {
+  id: string;
+  sessionId: string;
+  title: string;
+  description: string;
+  targetUrl: string;
+  testCases: QCTestCase[];
+  status: 'draft' | 'generating' | 'ready' | 'running' | 'completed';
+  summary?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface InsightsMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -247,7 +283,7 @@ export interface InsightsMessage {
   /** GitHub username if this message is from a remote teammate */
   teamUser?: string;
   /** Special message types for pipeline cards */
-  messageType?: 'message' | 'spec' | 'implementation' | 'review' | 'pr' | 'status';
+  messageType?: 'message' | 'spec' | 'implementation' | 'review' | 'pr' | 'status' | 'qc-plan' | 'qc-result';
   metadata?: Record<string, any>;
 }
 
@@ -260,8 +296,8 @@ export interface InsightsSession {
   copilotModel?: string;
   projectPath?: string;
   pinned?: boolean;
-  /** Chat mode: single persona or round table discussion */
-  mode?: 'single' | 'roundtable';
+  /** Chat mode: single persona, round table discussion, or QC testing */
+  mode?: 'single' | 'roundtable' | 'qc';
   /** Persona IDs participating in round table */
   personas?: string[];
   /** Current persona turn index */
@@ -274,6 +310,8 @@ export interface InsightsSession {
   shared?: boolean;
   /** GitHub usernames of remote participants */
   participants?: string[];
+  /** QC testing task */
+  qcTask?: QCTask;
   createdAt: string;
   updatedAt: string;
 }
@@ -286,8 +324,9 @@ export interface InsightsSessionMeta {
   provider?: AgentProviderId;
   projectPath?: string;
   pinned?: boolean;
-  mode?: 'single' | 'roundtable';
+  mode?: 'single' | 'roundtable' | 'qc';
   discussionStatus?: DiscussionStatus;
+  qcStatus?: QCTask['status'];
   createdAt: string;
   updatedAt: string;
 }
@@ -354,7 +393,7 @@ export interface SharedSessionInfo {
   title: string;
   owner: string; // GitHub username of creator
   repo: string;
-  mode: 'single' | 'roundtable';
+  mode: 'single' | 'roundtable' | 'qc';
   personas: string[]; // persona names (for display)
   participantCount: number;
   messageCount: number;
