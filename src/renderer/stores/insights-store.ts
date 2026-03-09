@@ -29,7 +29,7 @@ interface InsightsState {
   deleteSession: (id: string) => Promise<void>;
   renameSession: (id: string, title: string) => Promise<void>;
   sendMessage: (content: string, model?: InsightsModel, copilotModel?: string) => Promise<void>;
-  sendPersonaMessage: (content: string, persona: Persona, model?: InsightsModel, copilotModel?: string) => Promise<void>;
+  sendPersonaMessage: (content: string, persona: Persona, model?: InsightsModel, copilotModel?: string, userMessage?: string) => Promise<void>;
   advanceRoundTable: (userMessage: string, model?: InsightsModel, copilotModel?: string) => Promise<void>;
   abortStream: () => void;
   toggleSidebar: () => void;
@@ -199,7 +199,7 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
     }
   },
 
-  sendPersonaMessage: async (content, persona, model?, copilotModel?) => {
+  sendPersonaMessage: async (content, persona, model?, copilotModel?, userMessage?) => {
     const { activeSession, selectedProjectPath } = get();
     if (!activeSession) return;
 
@@ -207,11 +207,10 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
 
     try {
       const result = await window.electronAPI.insightsSendPersonaMessage(
-        activeSession.id, content, persona, model, selectedProjectPath ?? undefined, copilotModel,
+        activeSession.id, content, persona, model, selectedProjectPath ?? undefined, copilotModel, userMessage,
       );
       if (result.success) {
         set({ activeSession: result.data, isStreaming: false, streamingText: '', streamingPersonaId: null });
-        await get().loadSessions();
       } else {
         set({ isStreaming: false, streamingPersonaId: null, error: result.error || 'Failed to send persona message' });
       }
@@ -224,28 +223,21 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
     const { activeSession, personas } = get();
     if (!activeSession || activeSession.mode !== 'roundtable' || !activeSession.personas) return;
 
-    // Add user message first
+    // Show user message optimistically
     const optimisticMsg = {
       id: `temp-${Date.now()}`,
       role: 'user' as const,
       content: userMessage,
       timestamp: new Date().toISOString(),
     };
-
-    const updatedSession = {
-      ...activeSession,
-      messages: [...activeSession.messages, optimisticMsg],
-    };
-    set({ activeSession: updatedSession });
-
-    // Save user message to backend
-    await window.electronAPI.insightsUpdateSession(activeSession.id, {
-      messages: updatedSession.messages,
+    set({
+      activeSession: { ...activeSession, messages: [...activeSession.messages, optimisticMsg] },
     });
 
-    // Cycle through each persona
-    for (const personaId of activeSession.personas) {
-      const persona = personas.find((p) => p.id === personaId);
+    // Cycle through each persona — first call also saves user message to backend
+    const personaIds = activeSession.personas;
+    for (let i = 0; i < personaIds.length; i++) {
+      const persona = personas.find((p) => p.id === personaIds[i]);
       if (!persona) continue;
 
       const contextMsg = `The user said: "${userMessage}"\n\nPlease respond from your perspective as ${persona.name} (${persona.role}). Consider what other team members have already said in this discussion.`;
@@ -255,6 +247,7 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
       try {
         const result = await window.electronAPI.insightsSendPersonaMessage(
           activeSession.id, contextMsg, persona, model, get().selectedProjectPath ?? undefined, copilotModel,
+          i === 0 ? userMessage : undefined, // first call saves user message
         );
         if (result.success) {
           set({ activeSession: result.data, isStreaming: false, streamingText: '', streamingPersonaId: null });

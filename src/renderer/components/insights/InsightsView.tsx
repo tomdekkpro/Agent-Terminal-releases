@@ -263,22 +263,28 @@ export function InsightsView() {
       const { mentioned, cleanText } = parseMentions(text);
 
       if (mentioned.length > 0) {
-        // Send to only the mentioned personas
+        // Show user message optimistically
         const optimisticMsg = {
           id: `temp-${Date.now()}`,
           role: 'user' as const,
           content: text,
           timestamp: new Date().toISOString(),
         };
-        const updatedSession = { ...activeSession, messages: [...activeSession.messages, optimisticMsg] };
-        useInsightsStore.setState({ activeSession: updatedSession });
+        useInsightsStore.setState({
+          activeSession: { ...activeSession, messages: [...activeSession.messages, optimisticMsg] },
+        });
 
-        await window.electronAPI.insightsUpdateSession(activeSession.id, { messages: updatedSession.messages });
-
-        for (const persona of mentioned) {
+        // Send to mentioned personas — first call also saves the user message to backend
+        for (let i = 0; i < mentioned.length; i++) {
+          const persona = mentioned[i];
           const contextMsg = `The user asked you specifically: "${cleanText}"\n\nPlease respond from your perspective as ${persona.name} (${persona.role}). Consider what other team members have already said in this discussion.`;
-          await useInsightsStore.getState().sendPersonaMessage(contextMsg, persona, insightsModel, agentModel);
+          await useInsightsStore.getState().sendPersonaMessage(
+            contextMsg, persona, insightsModel, agentModel,
+            i === 0 ? text : undefined, // only first call saves the user message
+          );
         }
+        // Refresh sidebar once after all responses complete
+        await useInsightsStore.getState().loadSessions();
         return;
       }
 

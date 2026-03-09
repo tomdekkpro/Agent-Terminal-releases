@@ -129,8 +129,8 @@ const electronAPI = {
   insightsDeleteMessage: (sessionId: string, messageId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_DELETE_MESSAGE, sessionId, messageId),
   insightsExportSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_EXPORT_SESSION, id),
-  insightsSendPersonaMessage: (sessionId: string, content: string, persona: any, model?: string, projectPath?: string, copilotModel?: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_SEND_PERSONA_MESSAGE, sessionId, content, persona, model, projectPath, copilotModel),
+  insightsSendPersonaMessage: (sessionId: string, content: string, persona: any, model?: string, projectPath?: string, copilotModel?: string, userMessage?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_SEND_PERSONA_MESSAGE, sessionId, content, persona, model, projectPath, copilotModel, userMessage),
   insightsUpdateSession: (sessionId: string, updates: any) =>
     ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_UPDATE_SESSION, sessionId, updates),
   // Personas

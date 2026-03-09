@@ -156,7 +156,7 @@ export function registerInsightsHandlers(
   // ─── Round Table: send message as a specific persona ─────────
   ipcMain.handle(
     IPC_CHANNELS.INSIGHTS_SEND_PERSONA_MESSAGE,
-    async (_event, sessionId: string, content: string, persona: Persona, model?: InsightsModel, projectPath?: string, copilotModel?: string) => {
+    async (_event, sessionId: string, content: string, persona: Persona, model?: InsightsModel, projectPath?: string, copilotModel?: string, userMessage?: string) => {
       try {
         let session = await getSession(sessionId);
         if (!session) return { success: false, error: 'Session not found' };
@@ -164,6 +164,17 @@ export function registerInsightsHandlers(
         if (model) session.model = model;
         if (copilotModel) session.copilotModel = copilotModel;
         if (projectPath !== undefined) session.projectPath = projectPath || undefined;
+
+        // If a user message is provided, add it to the session first
+        if (userMessage) {
+          const userMsg: InsightsMessage = {
+            id: uuidv4(),
+            role: 'user',
+            content: userMessage,
+            timestamp: new Date().toISOString(),
+          };
+          session.messages.push(userMsg);
+        }
 
         session.updatedAt = new Date().toISOString();
         await saveSession(session);
