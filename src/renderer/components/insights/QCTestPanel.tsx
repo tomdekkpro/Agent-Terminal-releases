@@ -454,6 +454,10 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate }: QCTestPa
   const [runningAll, setRunningAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [addingTestCase, setAddingTestCase] = useState(false);
+  const [editingTask, setEditingTask] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editUrl, setEditUrl] = useState('');
 
   // Listen for QC events
   useEffect(() => {
@@ -636,22 +640,81 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate }: QCTestPa
         {qcTask && !showCreateForm && (
           <>
             <div className="p-3 border border-[var(--border)] rounded-lg bg-[var(--bg-card)]">
-              <div className="flex items-center justify-between mb-1">
-                <h4 className="text-sm font-medium text-[var(--text-primary)]">{qcTask.title}</h4>
-                <button
-                  onClick={() => setShowCreateForm(true)}
-                  className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                >
-                  New task
-                </button>
-              </div>
-              {qcTask.description && (
-                <p className="text-xs text-[var(--text-muted)] mb-1">{qcTask.description}</p>
+              {editingTask ? (
+                <div className="space-y-2">
+                  <input
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    placeholder="Task title"
+                    className="w-full text-sm bg-[var(--bg-primary)] text-[var(--text-primary)] border border-[var(--border)] rounded px-2.5 py-1.5 outline-none focus:border-[var(--accent)]"
+                    autoFocus
+                  />
+                  <textarea
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    placeholder="Description..."
+                    rows={3}
+                    className="w-full text-xs bg-[var(--bg-primary)] text-[var(--text-primary)] border border-[var(--border)] rounded px-2.5 py-1.5 outline-none focus:border-[var(--accent)] resize-none"
+                  />
+                  <div className="relative">
+                    <Globe className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+                    <input
+                      value={editUrl}
+                      onChange={(e) => setEditUrl(e.target.value)}
+                      placeholder="https://example.com"
+                      className="w-full text-xs bg-[var(--bg-primary)] text-[var(--text-primary)] border border-[var(--border)] rounded pl-7 pr-2.5 py-1.5 outline-none focus:border-[var(--accent)]"
+                    />
+                  </div>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => {
+                        if (editTitle.trim()) {
+                          onTaskUpdate({ ...qcTask, title: editTitle.trim(), description: editDescription.trim(), targetUrl: editUrl.trim() || qcTask.targetUrl, updatedAt: new Date().toISOString() });
+                        }
+                        setEditingTask(false);
+                      }}
+                      disabled={!editTitle.trim()}
+                      className="flex items-center gap-1 text-xs px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 disabled:opacity-50"
+                    >
+                      <Save className="w-3 h-3" /> Save
+                    </button>
+                    <button
+                      onClick={() => setEditingTask(false)}
+                      className="flex items-center gap-1 text-xs px-2.5 py-1 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="group/task">
+                  <div className="flex items-center justify-between mb-1">
+                    <h4 className="text-sm font-medium text-[var(--text-primary)]">{qcTask.title}</h4>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => { setEditTitle(qcTask.title); setEditDescription(qcTask.description); setEditUrl(qcTask.targetUrl); setEditingTask(true); }}
+                        className="opacity-0 group-hover/task:opacity-100 transition-opacity w-5 h-5 rounded flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--accent)]"
+                        title="Edit task"
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => setShowCreateForm(true)}
+                        className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                      >
+                        New task
+                      </button>
+                    </div>
+                  </div>
+                  {qcTask.description && (
+                    <p className="text-xs text-[var(--text-muted)] mb-1">{qcTask.description}</p>
+                  )}
+                  <div className="flex items-center gap-2 text-[10px] text-[var(--text-muted)]">
+                    <Globe className="w-3 h-3" />
+                    <span className="truncate">{qcTask.targetUrl}</span>
+                  </div>
+                </div>
               )}
-              <div className="flex items-center gap-2 text-[10px] text-[var(--text-muted)]">
-                <Globe className="w-3 h-3" />
-                <span className="truncate">{qcTask.targetUrl}</span>
-              </div>
             </div>
 
             {/* Action buttons */}
