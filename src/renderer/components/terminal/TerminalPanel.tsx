@@ -72,8 +72,6 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onI
   const readyRef = useRef(false);
   const bufferRef = useRef<string[]>([]);
 
-  const gpuAcceleration = useSettingsStore((s) => s.settings.terminalGpuAcceleration);
-
   // Drag and drop state
   const [isDragOver, setIsDragOver] = useState(false);
   interface DroppedFile { name: string; path: string; isImage: boolean; thumbnailUrl?: string; }

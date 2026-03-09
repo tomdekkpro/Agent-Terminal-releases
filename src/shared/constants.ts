@@ -75,6 +75,16 @@ export const IPC_CHANNELS = {
   INSIGHTS_PIN_SESSION: 'insights:pin-session',
   INSIGHTS_DELETE_MESSAGE: 'insights:delete-message',
   INSIGHTS_EXPORT_SESSION: 'insights:export-session',
+  // Personas
+  PERSONAS_LIST: 'personas:list',
+  PERSONAS_SAVE: 'personas:save',
+  PERSONAS_ADD: 'personas:add',
+  PERSONAS_UPDATE: 'personas:update',
+  PERSONAS_DELETE: 'personas:delete',
+  PERSONAS_RESET: 'personas:reset',
+  // Round table
+  INSIGHTS_SEND_PERSONA_MESSAGE: 'insights:send-persona-message',
+  INSIGHTS_UPDATE_SESSION: 'insights:update-session',
   // Updates
   UPDATE_CHECK: 'update:check',
   UPDATE_DOWNLOAD: 'update:download',

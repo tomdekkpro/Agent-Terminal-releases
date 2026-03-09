@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'child_process';
 import type { BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../shared/constants';
-import type { AgentProviderId, InsightsMessage, InsightsModel, InsightsStreamEvent } from '../../shared/types';
+import type { AgentProviderId, InsightsMessage, InsightsModel, InsightsStreamEvent, Persona } from '../../shared/types';
 import { agentRegistry } from '../ipc/providers/agent-registry';
 
 const activeStreams = new Map<string, ChildProcess>();
@@ -15,6 +15,7 @@ export function sendMessage(
   getWindow: () => BrowserWindow | null,
   provider?: AgentProviderId,
   copilotModel?: string,
+  persona?: Persona,
 ): Promise<string> {
   const providerId = provider || 'claude';
   const agentProvider = agentRegistry.get(providerId);
@@ -27,12 +28,17 @@ export function sendMessage(
     return Promise.reject(new Error(`${agentProvider.displayName} CLI is not installed. ${agentProvider.installHint}`));
   }
 
+  // Build the effective user message, injecting persona context if present
+  const effectiveMessage = persona
+    ? `[IMPORTANT: You are playing the role of "${persona.name}" (${persona.role}). ${persona.systemPrompt}]\n\n${userMessage}`
+    : userMessage;
+
   // Use provider-specific insights methods if available, otherwise fall back to generic spawn
   if (agentProvider.buildInsightsPrompt && agentProvider.buildInsightsArgs) {
     return spawnAgentChat(
       sessionId,
       agentProvider.command,
-      agentProvider.buildInsightsPrompt(messages, userMessage),
+      agentProvider.buildInsightsPrompt(messages, effectiveMessage),
       agentProvider.buildInsightsArgs(providerId === 'copilot' ? (copilotModel || model) : model, projectPath),
       agentProvider.parseInsightsStreamLine?.bind(agentProvider) || null,
       providerId === 'copilot' ? projectPath : undefined,
@@ -43,8 +49,8 @@ export function sendMessage(
 
   // Fallback: pipe prompt to stdin, read raw stdout
   const prompt = messages.length > 0
-    ? messages.map((m) => `${m.role}: ${m.content}`).join('\n\n') + `\n\nuser: ${userMessage}`
-    : userMessage;
+    ? messages.map((m) => `${m.role}: ${m.content}`).join('\n\n') + `\n\nuser: ${effectiveMessage}`
+    : effectiveMessage;
 
   return spawnAgentChat(
     sessionId,

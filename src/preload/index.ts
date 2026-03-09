@@ -129,6 +129,17 @@ const electronAPI = {
   insightsDeleteMessage: (sessionId: string, messageId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_DELETE_MESSAGE, sessionId, messageId),
   insightsExportSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_EXPORT_SESSION, id),
+  insightsSendPersonaMessage: (sessionId: string, content: string, persona: any, model?: string, projectPath?: string, copilotModel?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_SEND_PERSONA_MESSAGE, sessionId, content, persona, model, projectPath, copilotModel),
+  insightsUpdateSession: (sessionId: string, updates: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_UPDATE_SESSION, sessionId, updates),
+  // Personas
+  personasList: () => ipcRenderer.invoke(IPC_CHANNELS.PERSONAS_LIST),
+  personasSave: (personas: any[]) => ipcRenderer.invoke(IPC_CHANNELS.PERSONAS_SAVE, personas),
+  personasAdd: (persona: any) => ipcRenderer.invoke(IPC_CHANNELS.PERSONAS_ADD, persona),
+  personasUpdate: (id: string, updates: any) => ipcRenderer.invoke(IPC_CHANNELS.PERSONAS_UPDATE, id, updates),
+  personasDelete: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.PERSONAS_DELETE, id),
+  personasReset: () => ipcRenderer.invoke(IPC_CHANNELS.PERSONAS_RESET),
   onInsightsStreamEvent: (callback: (event: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(IPC_CHANNELS.INSIGHTS_STREAM_EVENT, handler);

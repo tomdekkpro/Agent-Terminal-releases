@@ -3,11 +3,14 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import hljs from 'highlight.js';
 import { Copy, Check, Sparkles, Terminal, MoreHorizontal, Trash2, RefreshCw } from 'lucide-react';
-import type { InsightsMessage } from '../../../shared/types';
+import type { InsightsMessage, Persona } from '../../../shared/types';
 import { useTerminalStore } from '../../stores/terminal-store';
+import { PersonaBadge } from './PersonaBadge';
+
 interface ChatMessageProps {
   message: InsightsMessage;
   providerLabel?: string;
+  persona?: Persona;
   onDelete?: (id: string) => void;
   onRetry?: () => void;
   isLastAssistant?: boolean;
@@ -113,7 +116,7 @@ function CodeBlock({ className, children }: { className?: string; children: Reac
   );
 }
 
-export function ChatMessage({ message, providerLabel, onDelete, onRetry, isLastAssistant }: ChatMessageProps) {
+export function ChatMessage({ message, providerLabel, persona, onDelete, onRetry, isLastAssistant }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -183,13 +186,19 @@ export function ChatMessage({ message, providerLabel, onDelete, onRetry, isLastA
 
   return (
     <div className="flex gap-3 px-4 py-3 group">
-      <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 bg-purple-500/20 text-purple-400">
-        <Sparkles className="w-4 h-4" />
-      </div>
+      {persona ? (
+        <div className="shrink-0 mt-0.5">
+          <PersonaBadge persona={persona} showName={false} size="md" />
+        </div>
+      ) : (
+        <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 bg-purple-500/20 text-purple-400">
+          <Sparkles className="w-4 h-4" />
+        </div>
+      )}
 
       <div className="flex-1 min-w-0 max-w-[85%]">
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-xs font-medium text-[var(--text-secondary)]">{providerLabel || 'Claude'}</span>
+          <span className="text-xs font-medium" style={persona ? { color: persona.color } : undefined}>{providerLabel || 'Claude'}</span>
           {message.model && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
               {message.model}

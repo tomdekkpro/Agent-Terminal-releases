@@ -66,7 +66,6 @@ export function UsageIndicator() {
   const copilotTokensUsed = useUsageStore((s) => s.copilotTokensUsed);
   const copilotInputTokens = useUsageStore((s) => s.copilotInputTokens);
   const copilotOutputTokens = useUsageStore((s) => s.copilotOutputTokens);
-  const copilotSessionCost = useUsageStore((s) => s.copilotSessionCost);
   const copilotDurationApi = useUsageStore((s) => s.copilotDurationApi);
   const copilotDurationWall = useUsageStore((s) => s.copilotDurationWall);
   const copilotLinesAdded = useUsageStore((s) => s.copilotLinesAdded);

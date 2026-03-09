@@ -200,12 +200,27 @@ export interface ProjectTabState {
 // Insights
 export type InsightsModel = 'opus' | 'sonnet' | 'haiku';
 
+export interface Persona {
+  id: string;
+  name: string;
+  role: string;
+  systemPrompt: string;
+  color: string;
+  icon: string;
+}
+
+export type DiscussionStatus = 'discussing' | 'spec-ready' | 'implementing' | 'reviewing' | 'completed';
+
 export interface InsightsMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
   model?: InsightsModel;
+  personaId?: string;
+  /** Special message types for pipeline cards */
+  messageType?: 'message' | 'spec' | 'implementation' | 'review' | 'pr' | 'status';
+  metadata?: Record<string, any>;
 }
 
 export interface InsightsSession {
@@ -217,6 +232,16 @@ export interface InsightsSession {
   copilotModel?: string;
   projectPath?: string;
   pinned?: boolean;
+  /** Chat mode: single persona or round table discussion */
+  mode?: 'single' | 'roundtable';
+  /** Persona IDs participating in round table */
+  personas?: string[];
+  /** Current persona turn index */
+  activePersonaIndex?: number;
+  /** Linked terminal for implementation */
+  linkedTerminalId?: string;
+  /** Discussion pipeline status */
+  discussionStatus?: DiscussionStatus;
   createdAt: string;
   updatedAt: string;
 }
@@ -229,6 +254,8 @@ export interface InsightsSessionMeta {
   provider?: AgentProviderId;
   projectPath?: string;
   pinned?: boolean;
+  mode?: 'single' | 'roundtable';
+  discussionStatus?: DiscussionStatus;
   createdAt: string;
   updatedAt: string;
 }
@@ -238,7 +265,35 @@ export interface InsightsStreamEvent {
   sessionId: string;
   text?: string;
   error?: string;
+  personaId?: string;
 }
+
+export const DEFAULT_PERSONAS: Persona[] = [
+  {
+    id: 'pm',
+    name: 'PM',
+    role: 'Product Manager',
+    systemPrompt: 'You are an experienced Product Manager. Focus on user requirements, acceptance criteria, user stories, business logic, and prioritization. Break down features into clear, actionable specifications. Consider edge cases from the user\'s perspective. When discussing implementation, focus on WHAT needs to be built and WHY, not HOW.',
+    color: '#6366f1',
+    icon: 'ClipboardList',
+  },
+  {
+    id: 'developer',
+    name: 'Developer',
+    role: 'Senior Developer',
+    systemPrompt: 'You are a Senior Software Developer. Focus on architecture, code implementation, design patterns, technical debt, and best practices. When discussing features, propose concrete technical approaches — which files to modify, data structures, APIs, and component design. Consider performance, maintainability, and scalability.',
+    color: '#22c55e',
+    icon: 'Code',
+  },
+  {
+    id: 'qc',
+    name: 'QC',
+    role: 'Quality Engineer',
+    systemPrompt: 'You are a Quality Assurance Engineer. Focus on test cases, edge cases, regression risks, error handling, and quality criteria. When reviewing features or code, identify potential bugs, missing validations, accessibility issues, and security concerns. Define clear pass/fail criteria for every requirement.',
+    color: '#f59e0b',
+    icon: 'ShieldCheck',
+  },
+];
 
 // Service Status
 export type ServiceStatusLevel = 'operational' | 'degraded' | 'major' | 'critical' | 'unknown';

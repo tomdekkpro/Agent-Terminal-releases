@@ -1,7 +1,7 @@
 import type { BrowserWindow, IpcMain } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
 import { IPC_CHANNELS } from '../../shared/constants';
-import type { CopilotProvider, InsightsMessage, InsightsModel, InsightsSession } from '../../shared/types';
+import type { CopilotProvider, InsightsMessage, InsightsModel, InsightsSession, Persona } from '../../shared/types';
 import { sendMessage, abortStream, abortAllStreams } from '../insights/chat-executor';
 import { track } from '../analytics/analytics-service';
 import {
@@ -14,6 +14,14 @@ import {
   deleteMessageAndAfter,
   exportSessionAsMarkdown,
 } from '../insights/session-storage';
+import {
+  loadPersonas,
+  savePersonas,
+  addPersona,
+  updatePersona,
+  deletePersona,
+  resetPersonas,
+} from '../insights/persona-storage';
 
 export function registerInsightsHandlers(
   ipcMain: IpcMain,
@@ -42,7 +50,6 @@ export function registerInsightsHandlers(
     IPC_CHANNELS.INSIGHTS_CREATE_SESSION,
     async (_event, model: InsightsModel, projectPath?: string, provider?: CopilotProvider, copilotModel?: string) => {
       try {
-        console.log('[insights-handler] createSession — provider:', provider, 'model:', model, 'copilotModel:', copilotModel);
         const now = new Date().toISOString();
         const session: InsightsSession = {
           id: uuidv4(),
@@ -89,8 +96,6 @@ export function registerInsightsHandlers(
       try {
         let session = await getSession(sessionId);
         if (!session) return { success: false, error: 'Session not found' };
-
-        console.log('[insights-handler] sendMessage — sessionId:', sessionId, 'session.provider:', session.provider, 'model:', model, 'copilotModel:', copilotModel, 'projectPath:', projectPath);
 
         // Update model if changed
         if (model) session.model = model;
@@ -148,6 +153,93 @@ export function registerInsightsHandlers(
     },
   );
 
+  // ─── Round Table: send message as a specific persona ─────────
+  ipcMain.handle(
+    IPC_CHANNELS.INSIGHTS_SEND_PERSONA_MESSAGE,
+    async (_event, sessionId: string, content: string, persona: Persona, model?: InsightsModel, projectPath?: string, copilotModel?: string) => {
+      try {
+        let session = await getSession(sessionId);
+        if (!session) return { success: false, error: 'Session not found' };
+
+        if (model) session.model = model;
+        if (copilotModel) session.copilotModel = copilotModel;
+        if (projectPath !== undefined) session.projectPath = projectPath || undefined;
+
+        session.updatedAt = new Date().toISOString();
+        await saveSession(session);
+
+        // Send message with persona context
+        const responseText = await sendMessage(
+          sessionId,
+          session.messages,
+          content,
+          session.model,
+          session.projectPath,
+          getWindow,
+          session.provider,
+          session.copilotModel,
+          persona,
+        );
+
+        // Reload and add persona's response
+        session = (await getSession(sessionId))!;
+        const assistantMsg: InsightsMessage = {
+          id: uuidv4(),
+          role: 'assistant',
+          content: responseText,
+          timestamp: new Date().toISOString(),
+          model: session.model,
+          personaId: persona.id,
+        };
+        session.messages.push(assistantMsg);
+
+        // Advance persona index
+        if (session.mode === 'roundtable' && session.personas && session.personas.length > 0) {
+          session.activePersonaIndex = ((session.activePersonaIndex ?? 0) + 1) % session.personas.length;
+        }
+
+        session.updatedAt = new Date().toISOString();
+        await saveSession(session);
+
+        return { success: true, data: session };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to send persona message' };
+      }
+    },
+  );
+
+  // ─── Update session fields (status, linked terminal, etc.) ───
+  ipcMain.handle(
+    IPC_CHANNELS.INSIGHTS_UPDATE_SESSION,
+    async (_event, sessionId: string, updates: Partial<InsightsSession>) => {
+      try {
+        const session = await getSession(sessionId);
+        if (!session) return { success: false, error: 'Session not found' };
+
+        // Apply safe updates (not messages/id)
+        if (updates.mode !== undefined) session.mode = updates.mode;
+        if (updates.personas !== undefined) session.personas = updates.personas;
+        if (updates.activePersonaIndex !== undefined) session.activePersonaIndex = updates.activePersonaIndex;
+        if (updates.linkedTerminalId !== undefined) session.linkedTerminalId = updates.linkedTerminalId;
+        if (updates.discussionStatus !== undefined) session.discussionStatus = updates.discussionStatus;
+        if (updates.title !== undefined) session.title = updates.title;
+
+        // If messages are provided (for adding status/spec cards), append them
+        if (updates.messages && updates.messages.length > session.messages.length) {
+          const newMessages = updates.messages.slice(session.messages.length);
+          session.messages.push(...newMessages);
+        }
+
+        session.updatedAt = new Date().toISOString();
+        await saveSession(session);
+
+        return { success: true, data: session };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to update session' };
+      }
+    },
+  );
+
   ipcMain.handle(IPC_CHANNELS.INSIGHTS_ABORT_STREAM, async (_event, sessionId: string) => {
     abortStream(sessionId);
     return { success: true };
@@ -179,6 +271,61 @@ export function registerInsightsHandlers(
       return { success: true, data: md };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to export session' };
+    }
+  });
+
+  // ─── Persona CRUD ────────────────────────────────────────────
+  ipcMain.handle(IPC_CHANNELS.PERSONAS_LIST, async () => {
+    try {
+      const personas = await loadPersonas();
+      return { success: true, data: personas };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to load personas' };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PERSONAS_SAVE, async (_event, personas: Persona[]) => {
+    try {
+      await savePersonas(personas);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to save personas' };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PERSONAS_ADD, async (_event, persona: Persona) => {
+    try {
+      const personas = await addPersona(persona);
+      return { success: true, data: personas };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to add persona' };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PERSONAS_UPDATE, async (_event, id: string, updates: Partial<Persona>) => {
+    try {
+      const personas = await updatePersona(id, updates);
+      return { success: true, data: personas };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to update persona' };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PERSONAS_DELETE, async (_event, id: string) => {
+    try {
+      const personas = await deletePersona(id);
+      return { success: true, data: personas };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to delete persona' };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PERSONAS_RESET, async () => {
+    try {
+      const personas = await resetPersonas();
+      return { success: true, data: personas };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to reset personas' };
     }
   });
 }
