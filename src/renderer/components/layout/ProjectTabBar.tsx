@@ -27,7 +27,10 @@ export function ProjectTabBar() {
   useEffect(() => {
     if (!settingsProjectId) return;
     window.electronAPI.getAgentProviders?.()
-      .then((providers: AgentProviderMeta[]) => setAgentProviders(providers))
+      .then((result: any) => {
+        const providers = Array.isArray(result) ? result : result?.data;
+        if (Array.isArray(providers)) setAgentProviders(providers);
+      })
       .catch(() => {});
   }, [settingsProjectId]);
 
