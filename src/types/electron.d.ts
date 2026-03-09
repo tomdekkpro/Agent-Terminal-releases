@@ -5,6 +5,4 @@ declare global {
     electronAPI: ElectronAPI;
   }
 
-  /** Injected by Vite define at build time from package.json */
-  const __APP_VERSION__: string;
 }

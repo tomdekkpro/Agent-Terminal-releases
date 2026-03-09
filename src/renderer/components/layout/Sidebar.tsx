@@ -1,6 +1,7 @@
 import { Terminal, CheckSquare, Sparkles, Settings } from 'lucide-react';
 import type { ViewType } from '../../App';
 import { cn } from '../../../shared/utils';
+import { APP_VERSION } from '../../lib/version';
 
 interface SidebarProps {
   activeView: ViewType;
@@ -70,7 +71,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
 
       {/* Version at bottom */}
       <div className="mt-auto pt-2">
-        <span className="text-[9px] text-[var(--text-muted)] opacity-40">v{__APP_VERSION__}</span>
+        <span className="text-[9px] text-[var(--text-muted)] opacity-40">v{APP_VERSION}</span>
       </div>
     </div>
   );

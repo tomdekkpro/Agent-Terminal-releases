@@ -3,6 +3,7 @@ import { Settings, Terminal, CheckSquare, Bot, Palette, Save, RotateCcw, Loader2
 import { useSettingsStore } from '../../stores/settings-store';
 import type { AppSettings, AgentProviderMeta } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
+import { APP_VERSION } from '../../lib/version';
 
 type SettingsSection = 'general' | 'terminal' | 'tasks' | 'agent' | 'team' | 'appearance';
 
@@ -186,7 +187,7 @@ export function SettingsView() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-[var(--text-primary)]">Agent Terminal</p>
-                      <p className="text-xs text-[var(--text-muted)] mt-0.5">Version {__APP_VERSION__}</p>
+                      <p className="text-xs text-[var(--text-muted)] mt-0.5">Version {APP_VERSION}</p>
                       <p className="text-[10px] text-[var(--text-muted)] mt-1">&copy; {new Date().getFullYear()} Tom. All rights reserved.</p>
                     </div>
                     {updateStatus === 'up-to-date' && (
