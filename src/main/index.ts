@@ -12,6 +12,7 @@ import { registerGitHandlers } from './ipc/git-handlers';
 import { registerInsightsHandlers, cleanupInsights } from './ipc/insights-handlers';
 import { registerTeamHandlers, cleanupTeam } from './ipc/team-handlers';
 import { registerQCHandlers } from './ipc/qc-handlers';
+import { cleanupAllQC } from './qc/qc-executor';
 import { initAutoUpdater } from './updater';
 import { IPC_CHANNELS } from '../shared/constants';
 import { registerAllAgents } from './ipc/providers/agents';
@@ -132,6 +133,7 @@ app.on('before-quit', async () => {
   trackShutdown();
   cleanupInsights();
   cleanupTeam();
+  cleanupAllQC();
   stopUsagePolling();
   stopServiceStatusPolling();
   if (terminalManager) {

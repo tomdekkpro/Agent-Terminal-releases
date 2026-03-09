@@ -1,9 +1,25 @@
-import { spawn, type ChildProcess } from 'child_process';
+import { spawn, execSync, type ChildProcess } from 'child_process';
 import { v4 as uuidv4 } from 'uuid';
 import type { BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { QCTask, QCTestCase, QCTestStep, InsightsModel } from '../../shared/types';
 import { agentRegistry } from '../ipc/providers/agent-registry';
+
+/** Kill a process and its entire tree (important on Windows where SIGTERM doesn't cascade) */
+function killProcessTree(child: ChildProcess): void {
+  if (!child.pid) return;
+  try {
+    if (process.platform === 'win32') {
+      execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: 'ignore' });
+    } else {
+      // Send SIGTERM to process group
+      process.kill(-child.pid, 'SIGTERM');
+    }
+  } catch {
+    // Fallback: direct kill
+    try { child.kill('SIGKILL'); } catch { /* already dead */ }
+  }
+}
 
 const activeProcesses = new Map<string, ChildProcess>();
 
@@ -165,7 +181,7 @@ Generate 3-8 test cases covering:
 
     // 2 minute timeout for generation
     setTimeout(() => {
-      child.kill('SIGTERM');
+      killProcessTree(child);
       reject(new Error('Test case generation timed out'));
     }, 120_000);
   });
@@ -372,7 +388,7 @@ IMPORTANT: Actually use the browser tools to navigate and interact with the page
 
     // 5 minute timeout per test case
     setTimeout(() => {
-      child.kill('SIGTERM');
+      killProcessTree(child);
     }, 5 * 60_000);
   });
 }
@@ -432,8 +448,16 @@ export async function runAllTests(
 export function abortQC(sessionId: string): void {
   for (const [key, child] of activeProcesses) {
     if (key.startsWith(sessionId)) {
-      child.kill('SIGTERM');
+      killProcessTree(child);
       activeProcesses.delete(key);
     }
+  }
+}
+
+/** Kill all active QC processes — call on app quit */
+export function cleanupAllQC(): void {
+  for (const [key, child] of activeProcesses) {
+    killProcessTree(child);
+    activeProcesses.delete(key);
   }
 }
