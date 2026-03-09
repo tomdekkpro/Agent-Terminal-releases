@@ -557,6 +557,8 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate }: QCTestPa
   // Summary stats
   const passed = qcTask?.testCases.filter((tc) => tc.status === 'passed').length || 0;
   const failed = qcTask?.testCases.filter((tc) => tc.status === 'failed').length || 0;
+  const errors = qcTask?.testCases.filter((tc) => tc.status === 'error').length || 0;
+  const running = qcTask?.testCases.filter((tc) => tc.status === 'running').length || 0;
   const pending = qcTask?.testCases.filter((tc) => tc.status === 'pending').length || 0;
   const total = qcTask?.testCases.length || 0;
 
@@ -567,11 +569,13 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate }: QCTestPa
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-amber-400" />
           <h3 className="text-sm font-medium text-[var(--text-primary)]">QC Testing</h3>
-          {qcTask && (
+          {qcTask && total > 0 && (
             <div className="flex items-center gap-2 ml-auto text-[10px]">
-              {passed > 0 && <span className="text-emerald-400">{passed} passed</span>}
-              {failed > 0 && <span className="text-red-400">{failed} failed</span>}
-              {pending > 0 && <span className="text-[var(--text-muted)]">{pending} pending</span>}
+              {running > 0 && <span className="flex items-center gap-0.5 text-blue-400"><Loader2 className="w-2.5 h-2.5 animate-spin" />{running} running</span>}
+              {passed > 0 && <span className="flex items-center gap-0.5 text-emerald-400"><CheckCircle className="w-2.5 h-2.5" />{passed}</span>}
+              {failed > 0 && <span className="flex items-center gap-0.5 text-red-400"><XCircle className="w-2.5 h-2.5" />{failed}</span>}
+              {errors > 0 && <span className="flex items-center gap-0.5 text-red-400"><AlertTriangle className="w-2.5 h-2.5" />{errors}</span>}
+              {pending > 0 && <span className="flex items-center gap-0.5 text-[var(--text-muted)]"><Clock className="w-2.5 h-2.5" />{pending}</span>}
             </div>
           )}
         </div>

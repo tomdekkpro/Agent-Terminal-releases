@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Trash2, MessageSquare, FolderOpen, Sparkles, Search, Pin, X, Users, Globe } from 'lucide-react';
+import { Plus, Trash2, MessageSquare, FolderOpen, Sparkles, Search, Pin, X, Users, Globe, ShieldCheck, CheckCircle, Loader2 } from 'lucide-react';
 import type { InsightsSessionMeta, SharedSessionInfo } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
 
@@ -154,16 +154,34 @@ export function SessionSidebar({
                 startRename(s.id, s.title);
               }}
             >
-              <p className="text-sm text-[var(--text-primary)] truncate">{s.title}</p>
+              <div className="flex items-center gap-1.5">
+                {s.mode === 'qc' && <ShieldCheck className="w-3 h-3 text-amber-400 shrink-0" />}
+                <p className="text-sm text-[var(--text-primary)] truncate">{s.title}</p>
+                {s.mode === 'qc' && s.qcStatus && (
+                  <span className={cn('shrink-0', s.qcStatus === 'running' && 'text-blue-400', s.qcStatus === 'completed' && 'text-emerald-400', (s.qcStatus === 'ready' || s.qcStatus === 'draft') && 'text-[var(--text-muted)]')}>
+                    {s.qcStatus === 'running' && <Loader2 className="w-3 h-3 animate-spin" />}
+                    {s.qcStatus === 'completed' && <CheckCircle className="w-3 h-3" />}
+                  </span>
+                )}
+              </div>
               <div className="flex items-center gap-2 mt-0.5">
-                <span className={cn('flex items-center gap-0.5 text-[10px]', providerInfo.color)}>
-                  <Sparkles className="w-2.5 h-2.5" />
-                  {providerInfo.label}
-                </span>
-                <span className="flex items-center gap-0.5 text-[10px] text-[var(--text-muted)]">
-                  <MessageSquare className="w-2.5 h-2.5" />
-                  {s.messageCount}
-                </span>
+                {s.mode !== 'qc' && (
+                  <span className={cn('flex items-center gap-0.5 text-[10px]', providerInfo.color)}>
+                    <Sparkles className="w-2.5 h-2.5" />
+                    {providerInfo.label}
+                  </span>
+                )}
+                {s.mode === 'qc' ? (
+                  <span className="flex items-center gap-0.5 text-[10px] text-amber-400">
+                    <ShieldCheck className="w-2.5 h-2.5" />
+                    QC Test
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-0.5 text-[10px] text-[var(--text-muted)]">
+                    <MessageSquare className="w-2.5 h-2.5" />
+                    {s.messageCount}
+                  </span>
+                )}
                 <span className="text-[10px] text-[var(--text-muted)]">{formatDate(s.updatedAt)}</span>
                 {folderName(s.projectPath) && (
                   <span className="flex items-center gap-0.5 text-[10px] text-[var(--text-muted)] truncate">
