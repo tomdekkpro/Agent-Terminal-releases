@@ -25,25 +25,48 @@ let pollingInterval: NodeJS.Timeout | null = null;
 // Per-provider cache
 const cache: Record<string, { data: ProviderStatus; fetchedAt: number }> = {};
 
-/** Helper: fetch JSON via Electron's net module (avoids CORS) */
-async function fetchJSON(url: string): Promise<any> {
+/** Helper: fetch JSON via Electron's net module (avoids CORS) with timeout */
+async function fetchJSON(url: string, timeoutMs = 15000): Promise<any> {
   return new Promise((resolve, reject) => {
     const request = net.request(url);
     let body = '';
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        request.abort();
+        reject(new Error(`Request to ${url} timed out after ${timeoutMs}ms`));
+      }
+    }, timeoutMs);
+
     request.on('response', (response) => {
       response.on('data', (chunk) => {
         body += chunk.toString();
       });
       response.on('end', () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         try {
           resolve(JSON.parse(body));
         } catch (e) {
           reject(new Error(`Failed to parse JSON from ${url}`));
         }
       });
-      response.on('error', reject);
+      response.on('error', (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
+      });
     });
-    request.on('error', reject);
+    request.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(err);
+    });
     request.end();
   });
 }
@@ -298,12 +321,29 @@ function severityRank(level: ServiceStatusLevel): number {
   }
 }
 
+/** Race a promise against a timeout */
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
 /** Fetch all providers and build summary */
 async function fetchAllStatuses(): Promise<ServiceStatusSummary> {
+  const now = Date.now();
+  const fallbackStatus = (provider: AgentProviderId): ProviderStatus => ({
+    provider,
+    level: 'unknown',
+    description: 'Status check timed out',
+    incidents: [],
+    lastChecked: now,
+  });
+
   const [claude, copilot, gemini] = await Promise.all([
-    fetchClaudeStatus(),
-    fetchGitHubCopilotStatus(),
-    fetchGeminiStatus(),
+    withTimeout(fetchClaudeStatus(), 20000, fallbackStatus('claude' as AgentProviderId)),
+    withTimeout(fetchGitHubCopilotStatus(), 20000, fallbackStatus('copilot' as AgentProviderId)),
+    withTimeout(fetchGeminiStatus(), 20000, fallbackStatus('gemini' as AgentProviderId)),
   ]);
 
   const providers: Record<string, ProviderStatus> = {

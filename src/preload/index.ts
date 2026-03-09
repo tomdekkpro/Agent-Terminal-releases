@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { IPC_CHANNELS } from '../shared/constants';
 
 const electronAPI = {
@@ -153,6 +153,9 @@ const electronAPI = {
     ipcRenderer.on(IPC_CHANNELS.UPDATE_STATUS, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.UPDATE_STATUS, handler);
   },
+
+  // File utilities
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
 
   // App
   openExternal: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_EXTERNAL, url),

@@ -89,7 +89,18 @@ export class TerminalManager {
         this.terminals,
         this.getWindow,
         (term, data) => this.handleTerminalData(term, data),
-        (_term) => { }
+        (term) => {
+          // When PTY exits while agent is active (e.g. Ctrl+C), clear agent state
+          if (term.isAgentMode || term.isClaudeMode) {
+            term.isAgentMode = false;
+            term.isClaudeMode = false;
+            const win = this.getWindow();
+            if (win && !win.isDestroyed()) {
+              win.webContents.send(IPC_CHANNELS.TERMINAL_AGENT_BUSY, term.id, false);
+              win.webContents.send(IPC_CHANNELS.TERMINAL_CLAUDE_BUSY, term.id, false);
+            }
+          }
+        }
       );
 
       return { success: true };

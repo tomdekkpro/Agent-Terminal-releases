@@ -15,6 +15,7 @@ import { debugError } from '../../shared/utils';
 let pollingInterval: NodeJS.Timeout | null = null;
 let cachedUsage: UsageSnapshot | null = null;
 let lastFetchTime = 0;
+let isPollingInProgress = false;
 const MIN_FETCH_INTERVAL = 30_000; // Minimum 30s between fetches
 
 export function registerUsageHandlers(
@@ -82,6 +83,10 @@ function startPolling(getWindow: () => BrowserWindow | null): void {
   if (pollingInterval) clearInterval(pollingInterval);
 
   pollingInterval = setInterval(async () => {
+    // Skip if previous poll is still running (prevents queue buildup)
+    if (isPollingInProgress) return;
+    isPollingInProgress = true;
+
     try {
       const available = await isClaudeAvailable();
       if (!available) return;
@@ -97,6 +102,8 @@ function startPolling(getWindow: () => BrowserWindow | null): void {
     } catch (err) {
       // Silently fail on background polls
       debugError('[UsageHandlers] Background poll failed:', err);
+    } finally {
+      isPollingInProgress = false;
     }
   }, 60_000);
 }

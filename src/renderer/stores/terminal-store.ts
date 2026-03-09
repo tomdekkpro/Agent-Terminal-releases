@@ -26,6 +26,7 @@ export interface Terminal {
   agentProvider: AgentProviderId;
   /** @deprecated Use agentProvider */
   copilotProvider?: AgentProviderId;
+  skipPermissions?: boolean;
   worktreePath?: string;
   worktreeBranch?: string;
   timeTracking?: TimeTracking;
@@ -67,6 +68,7 @@ function buildSaveableState(state: TerminalState) {
       claudeSessionId: t.claudeSessionId,
       claudeCwd: t.claudeCwd,
       agentProvider: t.agentProvider,
+      skipPermissions: t.skipPermissions,
       task: t.task,
       worktreePath: t.worktreePath,
       worktreeBranch: t.worktreeBranch,
@@ -125,6 +127,8 @@ interface TerminalState {
   getTerminalsByProject: (projectId?: string) => Terminal[];
   getGroupIds: (projectId?: string) => string[];
   getTerminalsInGroup: (groupId: string) => Terminal[];
+  reorderGroups: (projectId: string | undefined, fromGroupId: string, toGroupId: string) => void;
+  reorderTerminalsInGroup: (fromTerminalId: string, toTerminalId: string) => void;
   startTimer: (id: string) => void;
   stopTimer: (id: string) => TimeTracking | null;
   writeToTerminal: (terminalId: string, data: string) => void;
@@ -346,6 +350,61 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     return get().terminals.filter((t) => t.groupId === groupId);
   },
 
+  reorderGroups: (projectId: string | undefined, fromGroupId: string, toGroupId: string) => {
+    if (fromGroupId === toGroupId) return;
+    set((state) => {
+      // Separate terminals: those in this project vs. others
+      const inProject = state.terminals.filter((t) =>
+        projectId ? t.projectId === projectId : !t.projectId
+      );
+      const others = state.terminals.filter((t) =>
+        projectId ? t.projectId !== projectId : !!t.projectId
+      );
+
+      // Get current group order
+      const seen = new Set<string>();
+      const groupOrder: string[] = [];
+      for (const t of inProject) {
+        if (!seen.has(t.groupId)) {
+          seen.add(t.groupId);
+          groupOrder.push(t.groupId);
+        }
+      }
+
+      // Move fromGroupId to toGroupId's position
+      const fromIdx = groupOrder.indexOf(fromGroupId);
+      const toIdx = groupOrder.indexOf(toGroupId);
+      if (fromIdx === -1 || toIdx === -1) return state;
+
+      groupOrder.splice(fromIdx, 1);
+      groupOrder.splice(toIdx, 0, fromGroupId);
+
+      // Rebuild terminals array in new group order
+      const reordered: Terminal[] = [];
+      for (const gid of groupOrder) {
+        reordered.push(...inProject.filter((t) => t.groupId === gid));
+      }
+
+      return { terminals: [...others, ...reordered] };
+    });
+  },
+
+  reorderTerminalsInGroup: (fromTerminalId: string, toTerminalId: string) => {
+    if (fromTerminalId === toTerminalId) return;
+    set((state) => {
+      const fromIdx = state.terminals.findIndex((t) => t.id === fromTerminalId);
+      const toIdx = state.terminals.findIndex((t) => t.id === toTerminalId);
+      if (fromIdx === -1 || toIdx === -1) return state;
+      // Must be in the same group
+      if (state.terminals[fromIdx].groupId !== state.terminals[toIdx].groupId) return state;
+
+      const updated = [...state.terminals];
+      const [moved] = updated.splice(fromIdx, 1);
+      updated.splice(toIdx, 0, moved);
+      return { terminals: updated };
+    });
+  },
+
   startTimer: (id: string) => {
     set((state) => ({
       terminals: state.terminals.map((t) =>
@@ -417,6 +476,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         agentProvider: t.agentProvider || t.copilotProvider || 'claude',
         claudeSessionId: t.claudeSessionId,
         claudeCwd: t.claudeCwd,
+        skipPermissions: t.skipPermissions || false,
         projectId: t.projectId,
         // Support both legacy clickUpTask and new task field
         task: t.task || (t.clickUpTask ? { ...t.clickUpTask, provider: 'clickup' as const } : undefined),

@@ -58,6 +58,8 @@ export function sendMessage(
   );
 }
 
+const CHAT_TIMEOUT = 5 * 60_000; // 5 minutes max per chat request
+
 function spawnAgentChat(
   sessionId: string,
   command: string,
@@ -92,6 +94,7 @@ function spawnAgentChat(
     let fullText = '';
     let stderrText = '';
     let buffer = '';
+    let settled = false;
 
     const sendEvent = (event: InsightsStreamEvent) => {
       const win = getWindow();
@@ -99,6 +102,23 @@ function spawnAgentChat(
         win.webContents.send(IPC_CHANNELS.INSIGHTS_STREAM_EVENT, event);
       }
     };
+
+    // Timeout: kill the child process if it takes too long
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      activeStreams.delete(sessionId);
+      child.kill('SIGTERM');
+      if (fullText) {
+        // Got partial output — resolve with what we have
+        sendEvent({ type: 'done', sessionId });
+        resolve(fullText);
+      } else {
+        const errorMsg = `${command} timed out after ${CHAT_TIMEOUT / 1000}s`;
+        sendEvent({ type: 'error', sessionId, error: errorMsg });
+        reject(new Error(errorMsg));
+      }
+    }, CHAT_TIMEOUT);
 
     child.stdout?.on('data', (chunk: Buffer) => {
       const data = chunk.toString();
@@ -127,6 +147,9 @@ function spawnAgentChat(
     });
 
     child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
       activeStreams.delete(sessionId);
       // Flush remaining buffer
       if (lineParser && buffer.trim()) {
@@ -147,6 +170,9 @@ function spawnAgentChat(
     });
 
     child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
       activeStreams.delete(sessionId);
       sendEvent({ type: 'error', sessionId, error: err.message });
       reject(err);

@@ -11,14 +11,18 @@ const MAX_SEARCH_PAGES = 10;
 async function clickUpFetch(apiKey: string, endpoint: string, options: RequestInit = {}) {
   if (!apiKey) throw new Error('ClickUp API key not configured');
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
   const response = await fetch(`${CLICKUP_API_BASE}${endpoint}`, {
     ...options,
+    signal: controller.signal,
     headers: {
       Authorization: apiKey,
       'Content-Type': 'application/json',
       ...options.headers,
     },
-  });
+  }).finally(() => clearTimeout(timeoutId));
 
   if (!response.ok) {
     throw new Error(`ClickUp API error: ${response.status} ${response.statusText}`);

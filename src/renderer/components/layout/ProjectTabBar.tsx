@@ -182,7 +182,7 @@ export function ProjectTabBar() {
         </button>
 
         {showDropdown && (
-          <div className="absolute top-full left-0 mt-1 z-50 w-64 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden">
+          <div className="absolute top-full right-0 mt-1 z-50 w-64 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden">
             {closedProjects.length > 0 && (
               <>
                 <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-[var(--text-muted)] border-b border-[var(--border)]">

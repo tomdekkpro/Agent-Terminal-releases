@@ -31,10 +31,11 @@ export function useGlobalTerminalListeners() {
       })
     );
 
-    // Listen for terminal exit
+    // Listen for terminal exit — also clear agent busy state
     cleanups.push(
       window.electronAPI.onTerminalExit((id, _exitCode) => {
         setTerminalStatus(id, 'exited');
+        updateTerminal(id, { isClaudeBusy: false, isClaudeMode: false });
       })
     );
 

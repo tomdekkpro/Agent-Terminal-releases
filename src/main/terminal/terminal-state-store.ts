@@ -21,6 +21,7 @@ export interface SavedTerminal {
     url: string;
   };
   copilotProvider?: 'claude' | 'copilot';
+  skipPermissions?: boolean;
   worktreePath?: string;
   worktreeBranch?: string;
 }

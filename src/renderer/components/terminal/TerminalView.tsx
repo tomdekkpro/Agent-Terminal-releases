@@ -4,7 +4,7 @@ import {
   Plus, X, Bot, Terminal as TerminalIcon, Search,
   Columns2, ChevronDown, GitBranch, GitMerge, GitPullRequest,
   ArrowLeft, FolderGit2, Folder, Upload, Download, RefreshCw, List,
-  Filter, Loader2,
+  Filter, Loader2, GripVertical,
 } from 'lucide-react';
 import { useTerminalStore } from '../../stores/terminal-store';
 import { useSettingsStore } from '../../stores/settings-store';
@@ -824,6 +824,16 @@ export function TerminalView({ projectId }: TerminalViewProps) {
   const [editingTitle, setEditingTitle] = useState('');
   const updateTerminal = useTerminalStore((s) => s.updateTerminal);
 
+  // Drag-and-drop reorder state (tabs)
+  const [dragGroupId, setDragGroupId] = useState<string | null>(null);
+  const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null);
+  const reorderGroups = useTerminalStore((s) => s.reorderGroups);
+
+  // Drag-and-drop reorder state (split panels within a group)
+  const [dragTerminalId, setDragTerminalId] = useState<string | null>(null);
+  const [dragOverTerminalId, setDragOverTerminalId] = useState<string | null>(null);
+  const reorderTerminalsInGroup = useTerminalStore((s) => s.reorderTerminalsInGroup);
+
   const [showTaskPicker, setShowTaskPicker] = useState(false);
   const [taskPickerMode, setTaskPickerMode] = useState<'tab' | 'split' | 'link'>('tab');
   const [linkTargetTerminalId, setLinkTargetTerminalId] = useState<string | null>(null);
@@ -1169,6 +1179,9 @@ export function TerminalView({ projectId }: TerminalViewProps) {
     });
     if (result.success) {
       useTerminalStore.getState().setClaudeMode(id, true);
+      if (skipPermissions) {
+        useTerminalStore.getState().updateTerminal(id, { skipPermissions: true });
+      }
       // Send pending task prompt if available
       const pendingPrompt = terminal.pendingTaskPrompt;
       if (pendingPrompt) {
@@ -1486,14 +1499,51 @@ export function TerminalView({ projectId }: TerminalViewProps) {
             <div
               key={groupId}
               onClick={() => setActiveGroup(groupId)}
+              draggable
+              onDragStart={(e) => {
+                setDragGroupId(groupId);
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', groupId);
+                // Make the drag image slightly transparent
+                if (e.currentTarget instanceof HTMLElement) {
+                  e.currentTarget.style.opacity = '0.5';
+                }
+              }}
+              onDragEnd={(e) => {
+                setDragGroupId(null);
+                setDragOverGroupId(null);
+                if (e.currentTarget instanceof HTMLElement) {
+                  e.currentTarget.style.opacity = '1';
+                }
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                if (dragGroupId && dragGroupId !== groupId) {
+                  setDragOverGroupId(groupId);
+                }
+              }}
+              onDragLeave={() => {
+                if (dragOverGroupId === groupId) setDragOverGroupId(null);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragGroupId && dragGroupId !== groupId) {
+                  reorderGroups(projectId, dragGroupId, groupId);
+                }
+                setDragGroupId(null);
+                setDragOverGroupId(null);
+              }}
               className={cn(
                 'group flex items-center gap-2 px-3 h-8 rounded-md text-xs transition-all min-w-0 shrink-0 cursor-pointer',
                 'hover:bg-[var(--bg-tertiary)]',
                 activeGroupId === groupId
                   ? 'bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border)]'
-                  : 'text-[var(--text-secondary)]'
+                  : 'text-[var(--text-secondary)]',
+                dragOverGroupId === groupId && dragGroupId !== groupId && 'ring-2 ring-[var(--accent)] ring-inset',
               )}
             >
+              <GripVertical className="w-3 h-3 shrink-0 opacity-0 group-hover:opacity-40 cursor-grab active:cursor-grabbing transition-opacity -mr-1" />
               {isGroupSplit ? (
                 <Columns2 className="w-3.5 h-3.5 shrink-0" />
               ) : hasClaudeActive ? (
@@ -1701,11 +1751,32 @@ export function TerminalView({ projectId }: TerminalViewProps) {
                     {groupTerminals.map((terminal) => (
                       <div
                         key={terminal.id}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          e.dataTransfer.dropEffect = 'move';
+                          if (dragTerminalId && dragTerminalId !== terminal.id) {
+                            setDragOverTerminalId(terminal.id);
+                          }
+                        }}
+                        onDragLeave={() => {
+                          if (dragOverTerminalId === terminal.id) setDragOverTerminalId(null);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (dragTerminalId && dragTerminalId !== terminal.id) {
+                            reorderTerminalsInGroup(dragTerminalId, terminal.id);
+                          }
+                          setDragTerminalId(null);
+                          setDragOverTerminalId(null);
+                        }}
                         className={cn(
                           'rounded-lg overflow-hidden border min-h-0',
                           activeTerminalId === terminal.id
                             ? 'border-[var(--accent)]'
-                            : 'border-[var(--border)]'
+                            : 'border-[var(--border)]',
+                          dragTerminalId === terminal.id && 'opacity-50',
                         )}
                       >
                         <TerminalPanel
@@ -1719,6 +1790,17 @@ export function TerminalView({ projectId }: TerminalViewProps) {
                           onLinkTask={settings.taskManagerProvider !== 'none' ? () => handleLinkTask(terminal.id) : undefined}
                           onClose={() => handleCloseTerminal(terminal.id)}
                           onFocus={() => setActiveTerminal(terminal.id)}
+                          isDraggedOver={dragOverTerminalId === terminal.id && dragTerminalId !== terminal.id}
+                          onDragHandleStart={(e) => {
+                            e.stopPropagation();
+                            setDragTerminalId(terminal.id);
+                            e.dataTransfer.effectAllowed = 'move';
+                            e.dataTransfer.setData('text/plain', terminal.id);
+                          }}
+                          onDragHandleEnd={() => {
+                            setDragTerminalId(null);
+                            setDragOverTerminalId(null);
+                          }}
                         />
                       </div>
                     ))}

@@ -55,10 +55,14 @@ export class ClaudeAgentProvider implements IAgentProvider {
   }
 
   buildResumeCommand(options: AgentInvokeOptions): string {
+    let cmd = this.command;
     if (options.sessionId) {
-      return `${this.command} --resume "${options.sessionId}"`;
+      cmd += ` --resume "${options.sessionId}"`;
+    } else {
+      cmd += ' --continue';
     }
-    return `${this.command} --continue`;
+    if (options.skipPermissions) cmd += ' --dangerously-skip-permissions';
+    return cmd;
   }
 
   parseUsageFromOutput(data: string): AgentUsageData | null {

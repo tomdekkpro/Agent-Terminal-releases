@@ -215,15 +215,19 @@ async function fetchUsageViaAPI(): Promise<UsageSnapshot | null> {
   }
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
     const response = await fetch('https://api.anthropic.com/api/oauth/usage', {
       method: 'GET',
+      signal: controller.signal,
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
         'anthropic-beta': 'oauth-2025-04-20',
         'anthropic-version': '2023-06-01',
       },
-    });
+    }).finally(() => clearTimeout(timeoutId));
 
     if (!response.ok) {
       debugLog(`[UsageService] API returned ${response.status}: ${response.statusText}`);
@@ -342,8 +346,12 @@ export async function isClaudeAvailable(): Promise<boolean> {
       shell: IS_WINDOWS,
       windowsHide: true,
     });
-    proc.on('close', (code) => resolve(code === 0));
-    proc.on('error', () => resolve(false));
+    const timeout = setTimeout(() => {
+      proc.kill();
+      resolve(false);
+    }, 5000);
+    proc.on('close', (code) => { clearTimeout(timeout); resolve(code === 0); });
+    proc.on('error', () => { clearTimeout(timeout); resolve(false); });
   });
 }
 

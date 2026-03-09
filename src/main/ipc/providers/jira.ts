@@ -19,15 +19,19 @@ async function jiraFetch(settings: AppSettings, endpoint: string, options: Reque
     throw new Error('Jira credentials not configured');
   }
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
   const response = await fetch(`${getBaseUrl(jiraDomain)}${endpoint}`, {
     ...options,
+    signal: controller.signal,
     headers: {
       Authorization: getAuthHeader(jiraEmail, jiraApiToken),
       'Content-Type': 'application/json',
       Accept: 'application/json',
       ...options.headers,
     },
-  });
+  }).finally(() => clearTimeout(timeoutId));
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');

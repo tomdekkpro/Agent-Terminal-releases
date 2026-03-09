@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Bot, X, ExternalLink, GitBranch, GitMerge, Play, Square, Clock, Smartphone, Copy, Check, Eraser, ChevronDown, ImagePlus, FileImage, File as FileIcon, Link } from 'lucide-react';
+import { Bot, X, ExternalLink, GitBranch, GitMerge, Play, Square, Clock, Smartphone, Copy, Check, Eraser, ChevronDown, ImagePlus, FileImage, File as FileIcon, Link, GripVertical } from 'lucide-react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -31,7 +31,12 @@ interface TerminalPanelProps {
   onLinkTask?: () => void;
   onClose?: () => void;
   onFocus?: () => void;
+  onDragHandleStart?: (e: React.DragEvent) => void;
+  onDragHandleEnd?: (e: React.DragEvent) => void;
+  isDraggedOver?: boolean;
 }
+
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg', '.ico']);
 
 const TERMINAL_THEME = {
   background: '#0f0f23',
@@ -58,7 +63,7 @@ const TERMINAL_THEME = {
   brightWhite: '#f8fafc',
 };
 
-export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onInvokeAgent, onProviderChange, onMergeComplete, onLinkTask, onClose, onFocus }: TerminalPanelProps) {
+export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onInvokeAgent, onProviderChange, onMergeComplete, onLinkTask, onClose, onFocus, onDragHandleStart, onDragHandleEnd, isDraggedOver }: TerminalPanelProps) {
   const currentProvider = agentProviders.find((p) => p.id === terminal.agentProvider) || agentProviders[0];
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -74,6 +79,7 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onI
   interface DroppedFile { name: string; path: string; isImage: boolean; thumbnailUrl?: string; }
   const [droppedFiles, setDroppedFiles] = useState<DroppedFile[]>([]);
   const droppedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   // Provider dropdown
   const [showProviderMenu, setShowProviderMenu] = useState(false);
@@ -406,10 +412,9 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onI
   }, [remoteUrl]);
 
   // Drag and drop — attach native DOM listeners with capture to intercept before xterm
-  const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg', '.ico']);
 
   useEffect(() => {
-    const el = containerRef.current?.parentElement; // the outer wrapper div
+    const el = panelRef.current;
     if (!el) return;
 
     let dragCounter = 0;
@@ -417,7 +422,8 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onI
     const onDragEnter = (e: DragEvent) => {
       e.preventDefault();
       dragCounter++;
-      if (e.dataTransfer?.types.includes('Files')) {
+      const hasFiles = e.dataTransfer?.types.includes('Files');
+      if (hasFiles) {
         setIsDragOver(true);
       }
     };
@@ -449,8 +455,13 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onI
       const pathStrings: string[] = [];
 
       for (let i = 0; i < files.length; i++) {
-        const file = files[i] as File & { path?: string };
-        const filePath = file.path;
+        const file = files[i];
+        let filePath: string | undefined;
+        try {
+          filePath = window.electronAPI.getPathForFile(file);
+        } catch {
+          filePath = (file as any).path;
+        }
         if (!filePath) continue;
 
         const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase();
@@ -462,12 +473,12 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onI
         }
 
         collected.push({ name: file.name, path: filePath, isImage, thumbnailUrl });
-        pathStrings.push(filePath.includes(' ') ? `"${filePath}"` : filePath);
+        const needsQuoting = /[\s'"$`\\!&|;(){}]/.test(filePath);
+        pathStrings.push(needsQuoting ? `"${filePath.replace(/["$`\\]/g, '\\$&')}"` : filePath);
       }
 
       if (pathStrings.length === 0) return;
 
-      // Show dropped files toast
       setDroppedFiles(collected);
       if (droppedTimerRef.current) clearTimeout(droppedTimerRef.current);
       droppedTimerRef.current = setTimeout(() => {
@@ -479,14 +490,9 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onI
         });
       }, 4000);
 
-      // Paste file path(s) via xterm.paste() — this wraps text in bracketed paste
-      // sequences (\e[200~...\e[201~) so Claude Code and other CLI tools detect
-      // it as pasted content and can recognize image file paths
-      const text = pathStrings.join(' ');
-      if (xtermRef.current) {
-        xtermRef.current.paste(text);
-        xtermRef.current.focus();
-      }
+      const text = pathStrings.join(' ') + ' ';
+      window.electronAPI.sendTerminalInput(terminal.id, text);
+      if (xtermRef.current) xtermRef.current.focus();
     };
 
     // Use capture phase so we intercept before xterm's own handlers
@@ -504,13 +510,25 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onI
   }, [terminal.id]);
 
   return (
-    <div className="flex flex-col h-full relative" onClick={onFocus}>
+    <div ref={panelRef} className="flex flex-col h-full relative" onClick={onFocus}>
       {/* Terminal toolbar */}
       <div className={cn(
         'h-9 bg-[var(--bg-card)] border-b border-[var(--border)] flex items-center px-3 justify-between shrink-0',
-        isSplit && isActive && 'border-b-[var(--accent)]'
+        isSplit && isActive && 'border-b-[var(--accent)]',
+        isDraggedOver && 'ring-2 ring-[var(--accent)] ring-inset',
       )}>
         <div className="flex items-center gap-2 min-w-0 flex-1">
+          {isSplit && onDragHandleStart && (
+            <div
+              draggable
+              onDragStart={onDragHandleStart}
+              onDragEnd={onDragHandleEnd}
+              className="cursor-grab active:cursor-grabbing shrink-0 -ml-1 p-0.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
+              title="Drag to reorder"
+            >
+              <GripVertical className="w-3.5 h-3.5" />
+            </div>
+          )}
           {isEditingTitle ? (
             <input
               className="text-xs text-[var(--text-primary)] bg-transparent outline-none border-b border-[var(--accent)] truncate shrink-0 py-0 w-[120px]"
@@ -825,10 +843,64 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, onI
         </div>
       )}
 
-      {/* Drop overlay */}
+      {/* Drop overlay — acts as the actual drop target so xterm can't swallow the event */}
       {isDragOver && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#0f0f23]/80 backdrop-blur-sm border-2 border-dashed border-[var(--accent)] rounded-lg pointer-events-none">
-          <div className="flex flex-col items-center gap-3 text-[var(--accent)]">
+        <div
+          className="absolute inset-0 z-40 flex items-center justify-center bg-[#0f0f23]/80 backdrop-blur-sm border-2 border-dashed border-[var(--accent)] rounded-lg"
+          onDragOver={(e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDragOver(false);
+
+            const files = e.dataTransfer?.files;
+            if (!files || files.length === 0) return;
+
+            const collected: DroppedFile[] = [];
+            const pathStrings: string[] = [];
+
+            for (let i = 0; i < files.length; i++) {
+              const file = files[i];
+              let filePath: string | undefined;
+              try {
+                filePath = window.electronAPI.getPathForFile(file);
+              } catch {
+                filePath = (file as any).path;
+              }
+              if (!filePath) continue;
+
+              const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase();
+              const isImage = IMAGE_EXTENSIONS.has(ext);
+
+              let thumbnailUrl: string | undefined;
+              if (isImage) {
+                thumbnailUrl = URL.createObjectURL(file);
+              }
+
+              collected.push({ name: file.name, path: filePath, isImage, thumbnailUrl });
+              const needsQuoting = /[\s'"$`\\!&|;(){}]/.test(filePath);
+              pathStrings.push(needsQuoting ? `"${filePath.replace(/["$`\\]/g, '\\$&')}"` : filePath);
+            }
+
+            if (pathStrings.length === 0) return;
+
+            setDroppedFiles(collected);
+            if (droppedTimerRef.current) clearTimeout(droppedTimerRef.current);
+            droppedTimerRef.current = setTimeout(() => {
+              setDroppedFiles((prev) => {
+                for (const f of prev) {
+                  if (f.thumbnailUrl) URL.revokeObjectURL(f.thumbnailUrl);
+                }
+                return [];
+              });
+            }, 4000);
+
+            const text = pathStrings.join(' ') + ' ';
+            window.electronAPI.sendTerminalInput(terminal.id, text);
+            if (xtermRef.current) xtermRef.current.focus();
+          }}
+        >
+          <div className="flex flex-col items-center gap-3 text-[var(--accent)] pointer-events-none">
             <ImagePlus className="w-10 h-10 drop-shadow-lg" />
             <span className="text-sm font-medium">Drop to paste file path</span>
           </div>

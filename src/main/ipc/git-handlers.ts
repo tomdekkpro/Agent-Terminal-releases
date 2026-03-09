@@ -1,9 +1,27 @@
 import { type IpcMain } from 'electron';
-import { execSync } from 'child_process';
+import { exec, execSync } from 'child_process';
 import { existsSync, readFileSync, appendFileSync, cpSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { debugLog, debugError } from '../../shared/utils';
+
+const GIT_TIMEOUT = 30000; // 30 seconds for most git operations
+const NETWORK_TIMEOUT = 60000; // 60 seconds for network operations (push, pull, fetch)
+
+/** Run a git command asynchronously with timeout (non-blocking) */
+function gitExec(command: string, cwd: string, timeout = GIT_TIMEOUT): Promise<string> {
+  return new Promise((resolve, reject) => {
+    exec(command, { cwd, encoding: 'utf-8', timeout, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        const err = error as any;
+        err.stderr = stderr;
+        reject(err);
+      } else {
+        resolve(stdout.trim());
+      }
+    });
+  });
+}
 
 /** Copy .claude/ directory from parent project to worktree so Claude Code CLI has project settings */
 function copyClaudeConfig(projectPath: string, worktreeDir: string): void {
@@ -28,7 +46,7 @@ function sanitize(name: string): string {
 
 function isGitRepo(cwd: string): boolean {
   try {
-    execSync('git rev-parse --git-dir', { cwd, stdio: 'ignore' });
+    execSync('git rev-parse --git-dir', { cwd, stdio: 'ignore', timeout: 5000 });
     return true;
   } catch {
     return false;
@@ -75,17 +93,11 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
 
         // Try creating with new branch
         try {
-          execSync(`git worktree add "${worktreeDir}" -b "${branch}"`, {
-            cwd: projectPath,
-            stdio: 'pipe',
-          });
+          await gitExec(`git worktree add "${worktreeDir}" -b "${branch}"`, projectPath);
         } catch {
           // Branch might already exist (previous worktree was removed but branch kept)
           try {
-            execSync(`git worktree add "${worktreeDir}" "${branch}"`, {
-              cwd: projectPath,
-              stdio: 'pipe',
-            });
+            await gitExec(`git worktree add "${worktreeDir}" "${branch}"`, projectPath);
           } catch (err: any) {
             return { success: false, error: err.message || 'Failed to create worktree' };
           }
@@ -107,10 +119,7 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
     IPC_CHANNELS.GIT_REMOVE_WORKTREE,
     async (_event, projectPath: string, worktreePath: string) => {
       try {
-        execSync(`git worktree remove "${worktreePath}" --force`, {
-          cwd: projectPath,
-          stdio: 'pipe',
-        });
+        await gitExec(`git worktree remove "${worktreePath}" --force`, projectPath);
         debugLog('[Git] Removed worktree:', worktreePath);
         return { success: true };
       } catch (error: any) {
@@ -128,10 +137,7 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
           return { success: false, error: 'Not a git repository' };
         }
 
-        const output = execSync('git branch --format="%(refname:short)"', {
-          cwd: projectPath,
-          encoding: 'utf-8',
-        }).trim();
+        const output = await gitExec('git branch --format="%(refname:short)"', projectPath);
 
         const branches = output
           .split('\n')
@@ -141,10 +147,7 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
         // Detect current branch
         let current = '';
         try {
-          current = execSync('git rev-parse --abbrev-ref HEAD', {
-            cwd: projectPath,
-            encoding: 'utf-8',
-          }).trim();
+          current = await gitExec('git rev-parse --abbrev-ref HEAD', projectPath, 5000);
         } catch { /* ignore */ }
 
         return { success: true, branches, current };
@@ -165,10 +168,10 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
 
         // Ensure task branch has commits ahead of target
         try {
-          const aheadCount = execSync(
+          const aheadCount = await gitExec(
             `git rev-list --count ${targetBranch}..${taskBranch}`,
-            { cwd: projectPath, encoding: 'utf-8' }
-          ).trim();
+            projectPath,
+          );
           if (aheadCount === '0') {
             return { success: false, error: `No commits to merge — task branch is up to date with ${targetBranch}` };
           }
@@ -178,41 +181,32 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
 
         // Remove the worktree first (must be done before merging to avoid lock issues)
         try {
-          execSync(`git worktree remove "${worktreePath}" --force`, {
-            cwd: projectPath,
-            stdio: 'pipe',
-          });
+          await gitExec(`git worktree remove "${worktreePath}" --force`, projectPath);
           debugLog('[Git] Removed worktree before merge:', worktreePath);
         } catch {
           // Worktree might already be gone
         }
 
         // Switch to target branch in the project root
-        execSync(`git checkout ${targetBranch}`, {
-          cwd: projectPath,
-          stdio: 'pipe',
-        });
+        await gitExec(`git checkout ${targetBranch}`, projectPath);
 
         // Merge the task branch
         try {
-          execSync(`git merge ${taskBranch} --no-ff -m "Merge ${taskBranch} into ${targetBranch}"`, {
-            cwd: projectPath,
-            stdio: 'pipe',
-          });
+          await gitExec(
+            `git merge ${taskBranch} --no-ff -m "Merge ${taskBranch} into ${targetBranch}"`,
+            projectPath,
+          );
         } catch (mergeErr: any) {
           // Merge conflict — abort and report
           try {
-            execSync('git merge --abort', { cwd: projectPath, stdio: 'pipe' });
+            await gitExec('git merge --abort', projectPath, 5000);
           } catch { /* ignore */ }
           return { success: false, error: 'Merge conflict detected. Please resolve manually.' };
         }
 
         // Delete the task branch
         try {
-          execSync(`git branch -d ${taskBranch}`, {
-            cwd: projectPath,
-            stdio: 'pipe',
-          });
+          await gitExec(`git branch -d ${taskBranch}`, projectPath);
           debugLog('[Git] Deleted task branch:', taskBranch);
         } catch {
           // Non-critical — branch may have other references
@@ -220,7 +214,7 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
 
         // Prune worktree list
         try {
-          execSync('git worktree prune', { cwd: projectPath, stdio: 'pipe' });
+          await gitExec('git worktree prune', projectPath, 5000);
         } catch { /* ignore */ }
 
         debugLog('[Git] Merged task branch into', targetBranch);
@@ -241,15 +235,9 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
         }
 
         // Detect current branch if not specified
-        const branchName = branch || execSync('git rev-parse --abbrev-ref HEAD', {
-          cwd,
-          encoding: 'utf-8',
-        }).trim();
+        const branchName = branch || await gitExec('git rev-parse --abbrev-ref HEAD', cwd, 5000);
 
-        execSync(`git push -u origin ${branchName}`, {
-          cwd,
-          stdio: 'pipe',
-        });
+        await gitExec(`git push -u origin ${branchName}`, cwd, NETWORK_TIMEOUT);
 
         debugLog('[Git] Pushed branch:', branchName);
         return { success: true, branch: branchName };
@@ -272,20 +260,11 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
           return { success: false, error: 'Not a git repository' };
         }
 
-        execSync('git fetch --all --prune', {
-          cwd,
-          stdio: 'pipe',
-          timeout: 30000,
-        });
+        await gitExec('git fetch --all --prune', cwd, NETWORK_TIMEOUT);
 
         let behindCount = 0;
         try {
-          const count = execSync('git rev-list HEAD..@{u} --count', {
-            cwd,
-            encoding: 'utf-8',
-            stdio: 'pipe',
-            timeout: 5000,
-          }).trim();
+          const count = await gitExec('git rev-list HEAD..@{u} --count', cwd, 5000);
           behindCount = parseInt(count, 10) || 0;
         } catch {
           // No upstream configured — ignore
@@ -309,31 +288,16 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
           return { success: false, error: 'Not a git repository' };
         }
 
-        const oldHead = execSync('git rev-parse HEAD', {
-          cwd,
-          encoding: 'utf-8',
-          stdio: 'pipe',
-          timeout: 5000,
-        }).trim();
+        const oldHead = await gitExec('git rev-parse HEAD', cwd, 5000);
 
-        const output = execSync('git pull', {
-          cwd,
-          encoding: 'utf-8',
-          stdio: 'pipe',
-          timeout: 60000,
-        }).trim();
+        const output = await gitExec('git pull', cwd, NETWORK_TIMEOUT);
 
         const alreadyUpToDate = output.includes('Already up to date') || output.includes('up-to-date');
 
         let commitsPulled = 0;
         if (!alreadyUpToDate) {
           try {
-            const count = execSync(`git rev-list ${oldHead}..HEAD --count`, {
-              cwd,
-              encoding: 'utf-8',
-              stdio: 'pipe',
-              timeout: 5000,
-            }).trim();
+            const count = await gitExec(`git rev-list ${oldHead}..HEAD --count`, cwd, 5000);
             commitsPulled = parseInt(count, 10) || 0;
           } catch {
             // ignore
@@ -368,7 +332,7 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
 
         // Check if gh CLI is available
         try {
-          execSync('gh --version', { stdio: 'pipe' });
+          await gitExec('gh --version', projectPath, 10000);
         } catch {
           return { success: false, error: 'GitHub CLI (gh) is not installed. Install from https://cli.github.com' };
         }
@@ -376,10 +340,7 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
         // Push the task branch to remote from worktree (or project root if worktree gone)
         const pushCwd = existsSync(worktreePath) ? worktreePath : projectPath;
         try {
-          execSync(`git push -u origin ${taskBranch}`, {
-            cwd: pushCwd,
-            stdio: 'pipe',
-          });
+          await gitExec(`git push -u origin ${taskBranch}`, pushCwd, NETWORK_TIMEOUT);
           debugLog('[Git] Pushed branch to remote:', taskBranch);
         } catch (pushErr: any) {
           const msg = pushErr.stderr?.toString() || pushErr.message || '';
@@ -393,10 +354,11 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
         const escapedTitle = title.replace(/"/g, '\\"');
         const escapedBody = body.replace(/"/g, '\\"');
         try {
-          const prOutput = execSync(
+          const prOutput = await gitExec(
             `gh pr create --base "${targetBranch}" --head "${taskBranch}" --title "${escapedTitle}" --body "${escapedBody}"`,
-            { cwd: projectPath, encoding: 'utf-8', stdio: 'pipe' }
-          ).trim();
+            projectPath,
+            NETWORK_TIMEOUT,
+          );
 
           // gh pr create outputs the PR URL
           debugLog('[Git] Created PR:', prOutput);
@@ -406,10 +368,11 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
           // If PR already exists, try to get its URL
           if (stderr.includes('already exists')) {
             try {
-              const existing = execSync(
+              const existing = await gitExec(
                 `gh pr view ${taskBranch} --json url --jq .url`,
-                { cwd: projectPath, encoding: 'utf-8', stdio: 'pipe' }
-              ).trim();
+                projectPath,
+                NETWORK_TIMEOUT,
+              );
               return { success: true, prUrl: existing, existing: true };
             } catch {
               return { success: false, error: 'A PR already exists for this branch' };

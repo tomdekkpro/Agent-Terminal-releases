@@ -103,11 +103,12 @@ export default function App() {
             await window.electronAPI.resumeAgent(terminal.id, 'claude', {
               sessionId: terminal.claudeSessionId,
               cwd: resumeCwd,
+              skipPermissions: terminal.skipPermissions,
             });
           } else {
             // Other agents: resume the first one with --continue, reset the rest
             if (!continuedAgents.has(agentId)) {
-              await window.electronAPI.resumeAgent(terminal.id, agentId, { cwd: terminal.cwd });
+              await window.electronAPI.resumeAgent(terminal.id, agentId, { cwd: terminal.cwd, skipPermissions: terminal.skipPermissions });
               continuedAgents.add(agentId);
             } else {
               useTerminalStore.getState().setClaudeMode(terminal.id, false);
