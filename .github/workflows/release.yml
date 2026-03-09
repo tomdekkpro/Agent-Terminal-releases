@@ -9,7 +9,20 @@ permissions:
   contents: write
 
 jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          token: ${{ secrets.RELEASE_TOKEN }}
+          repository: tomdekkpro/Agent-Terminal-releases
+
   release:
+    needs: create-release
     strategy:
       fail-fast: false
       matrix:
