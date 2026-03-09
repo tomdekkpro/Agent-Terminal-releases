@@ -93,6 +93,21 @@ export const IPC_CHANNELS = {
   // Service Status
   SERVICE_STATUS_REQUEST: 'service-status:request',
   SERVICE_STATUS_UPDATED: 'service-status:updated',
+  // Team Chat
+  TEAM_CONNECT: 'team:connect',
+  TEAM_DISCONNECT: 'team:disconnect',
+  TEAM_SEND_MESSAGE: 'team:send-message',
+  TEAM_SEND_TYPING: 'team:send-typing',
+  TEAM_GET_IDENTITY: 'team:get-identity',
+  TEAM_GET_REPO: 'team:get-repo',
+  TEAM_START_SERVER: 'team:start-server',
+  TEAM_STOP_SERVER: 'team:stop-server',
+  TEAM_EVENT: 'team:event',
+  TEAM_SHARE_SESSION: 'team:share-session',
+  TEAM_UNSHARE_SESSION: 'team:unshare-session',
+  TEAM_JOIN_SESSION: 'team:join-session',
+  TEAM_LEAVE_SESSION: 'team:leave-session',
+  TEAM_SEND_SESSION_MESSAGE: 'team:send-session-message',
   // App
   OPEN_EXTERNAL: 'app:open-external',
 } as const;

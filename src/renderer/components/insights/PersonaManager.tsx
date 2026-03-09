@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Trash2, RotateCcw, X, Save } from 'lucide-react';
+import { Plus, Trash2, RotateCcw, X, Save, GitBranch, CheckSquare } from 'lucide-react';
 import type { Persona } from '../../../shared/types';
 import { useInsightsStore } from '../../stores/insights-store';
 import { PersonaBadge, AVAILABLE_ICONS, getPersonaIcon } from './PersonaBadge';
@@ -25,6 +25,7 @@ export function PersonaManager({ onClose }: PersonaManagerProps) {
       systemPrompt: '',
       color: PRESET_COLORS[personas.length % PRESET_COLORS.length],
       icon: 'User',
+      integrations: { clickup: false, github: false },
     });
   };
 
@@ -145,6 +146,46 @@ export function PersonaManager({ onClose }: PersonaManagerProps) {
                 </div>
               </div>
 
+              {/* Integrations */}
+              <div>
+                <label className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Integrations</label>
+                <p className="text-[10px] text-[var(--text-muted)] mt-0.5 mb-1.5">Auto-fetch context when task IDs or PR/issue numbers are mentioned</p>
+                <div className="flex gap-3 mt-1">
+                  <button
+                    type="button"
+                    onClick={() => setDraft({
+                      ...draft,
+                      integrations: { ...draft.integrations, clickup: !draft.integrations?.clickup },
+                    })}
+                    className={cn(
+                      'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border transition-colors',
+                      draft.integrations?.clickup
+                        ? 'border-purple-500/50 bg-purple-500/10 text-purple-400'
+                        : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]',
+                    )}
+                  >
+                    <CheckSquare className="w-3 h-3" />
+                    ClickUp / Tasks
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDraft({
+                      ...draft,
+                      integrations: { ...draft.integrations, github: !draft.integrations?.github },
+                    })}
+                    className={cn(
+                      'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border transition-colors',
+                      draft.integrations?.github
+                        ? 'border-green-500/50 bg-green-500/10 text-green-400'
+                        : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]',
+                    )}
+                  >
+                    <GitBranch className="w-3 h-3" />
+                    GitHub CLI
+                  </button>
+                </div>
+              </div>
+
               <div className="flex justify-end gap-2">
                 <button onClick={() => { setEditingId(null); setDraft({}); }} className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] px-3 py-1.5 rounded hover:bg-[var(--bg-tertiary)]">
                   Cancel
@@ -174,6 +215,12 @@ export function PersonaManager({ onClose }: PersonaManagerProps) {
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium" style={{ color: p.color }}>{p.name}</span>
                   <span className="text-[10px] text-[var(--text-muted)]">{p.role}</span>
+                  {p.integrations?.clickup && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">Tasks</span>
+                  )}
+                  {p.integrations?.github && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20">GitHub</span>
+                  )}
                 </div>
                 <p className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">{p.systemPrompt}</p>
               </div>

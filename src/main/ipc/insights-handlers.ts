@@ -234,6 +234,8 @@ export function registerInsightsHandlers(
         if (updates.linkedTerminalId !== undefined) session.linkedTerminalId = updates.linkedTerminalId;
         if (updates.discussionStatus !== undefined) session.discussionStatus = updates.discussionStatus;
         if (updates.title !== undefined) session.title = updates.title;
+        if (updates.shared !== undefined) session.shared = updates.shared;
+        if (updates.participants !== undefined) session.participants = updates.participants;
 
         // If messages are provided (for adding status/spec cards), append them
         if (updates.messages && updates.messages.length > session.messages.length) {

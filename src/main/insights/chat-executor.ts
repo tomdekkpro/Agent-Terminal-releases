@@ -3,10 +3,11 @@ import type { BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { AgentProviderId, InsightsMessage, InsightsModel, InsightsStreamEvent, Persona } from '../../shared/types';
 import { agentRegistry } from '../ipc/providers/agent-registry';
+import { enrichContext } from './context-enricher';
 
 const activeStreams = new Map<string, ChildProcess>();
 
-export function sendMessage(
+export async function sendMessage(
   sessionId: string,
   messages: InsightsMessage[],
   userMessage: string,
@@ -28,10 +29,22 @@ export function sendMessage(
     return Promise.reject(new Error(`${agentProvider.displayName} CLI is not installed. ${agentProvider.installHint}`));
   }
 
-  // Build the effective user message, injecting persona context if present
-  const effectiveMessage = persona
-    ? `[IMPORTANT: You are playing the role of "${persona.name}" (${persona.role}). ${persona.systemPrompt}]\n\n${userMessage}`
-    : userMessage;
+  // Fetch external context (ClickUp tasks, GitHub PRs/issues) based on persona integrations
+  let externalContext = '';
+  try {
+    externalContext = await enrichContext(userMessage, persona, projectPath);
+  } catch {
+    // Non-critical — continue without enrichment
+  }
+
+  // Build the effective user message, injecting persona context and external data
+  let effectiveMessage = userMessage;
+  if (externalContext) {
+    effectiveMessage = `${externalContext}\n${effectiveMessage}`;
+  }
+  if (persona) {
+    effectiveMessage = `[IMPORTANT: You are playing the role of "${persona.name}" (${persona.role}). ${persona.systemPrompt}]\n\n${effectiveMessage}`;
+  }
 
   // Use provider-specific insights methods if available, otherwise fall back to generic spawn
   if (agentProvider.buildInsightsPrompt && agentProvider.buildInsightsArgs) {

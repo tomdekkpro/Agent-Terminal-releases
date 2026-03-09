@@ -169,6 +169,26 @@ const electronAPI = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.UPDATE_STATUS, handler);
   },
 
+  // Team Chat
+  teamGetIdentity: () => ipcRenderer.invoke(IPC_CHANNELS.TEAM_GET_IDENTITY),
+  teamGetRepo: (projectPath: string) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_GET_REPO, projectPath),
+  teamConnect: (serverUrl: string, user: any) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_CONNECT, serverUrl, user),
+  teamDisconnect: () => ipcRenderer.invoke(IPC_CHANNELS.TEAM_DISCONNECT),
+  teamSendMessage: (content: string) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_SEND_MESSAGE, content),
+  teamSendTyping: () => ipcRenderer.invoke(IPC_CHANNELS.TEAM_SEND_TYPING),
+  teamStartServer: (port?: number) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_START_SERVER, port),
+  teamStopServer: () => ipcRenderer.invoke(IPC_CHANNELS.TEAM_STOP_SERVER),
+  teamShareSession: (session: any) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_SHARE_SESSION, session),
+  teamUnshareSession: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_UNSHARE_SESSION, sessionId),
+  teamJoinSession: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_JOIN_SESSION, sessionId),
+  teamLeaveSession: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_LEAVE_SESSION, sessionId),
+  teamSendSessionMessage: (sessionId: string, message: any) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_SEND_SESSION_MESSAGE, sessionId, message),
+  onTeamEvent: (callback: (event: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.TEAM_EVENT, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.TEAM_EVENT, handler);
+  },
+
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
 

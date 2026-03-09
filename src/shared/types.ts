@@ -135,6 +135,9 @@ export interface AppSettings {
   // General
   autoUpdate: boolean;
   telemetryEnabled: boolean;
+  // Team
+  teamServerUrl: string;
+  teamAutoConnect: boolean;
   // Agent providers
   defaultAgentProvider: AgentProviderId;
   agentModels: Partial<Record<AgentProviderId, string>>;
@@ -214,6 +217,13 @@ export interface ProjectTabState {
 // Insights
 export type InsightsModel = 'opus' | 'sonnet' | 'haiku';
 
+export interface PersonaIntegrations {
+  /** Allow this persona to fetch ClickUp task details when task IDs are referenced */
+  clickup?: boolean;
+  /** Allow this persona to fetch GitHub info (PRs, issues, repo status) via gh CLI */
+  github?: boolean;
+}
+
 export interface Persona {
   id: string;
   name: string;
@@ -221,6 +231,8 @@ export interface Persona {
   systemPrompt: string;
   color: string;
   icon: string;
+  /** Optional integrations this persona can access for context enrichment */
+  integrations?: PersonaIntegrations;
 }
 
 export type DiscussionStatus = 'discussing' | 'spec-ready' | 'implementing' | 'reviewing' | 'completed';
@@ -232,6 +244,8 @@ export interface InsightsMessage {
   timestamp: string;
   model?: InsightsModel;
   personaId?: string;
+  /** GitHub username if this message is from a remote teammate */
+  teamUser?: string;
   /** Special message types for pipeline cards */
   messageType?: 'message' | 'spec' | 'implementation' | 'review' | 'pr' | 'status';
   metadata?: Record<string, any>;
@@ -256,6 +270,10 @@ export interface InsightsSession {
   linkedTerminalId?: string;
   /** Discussion pipeline status */
   discussionStatus?: DiscussionStatus;
+  /** Whether this session is shared with the team */
+  shared?: boolean;
+  /** GitHub usernames of remote participants */
+  participants?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -290,6 +308,7 @@ export const DEFAULT_PERSONAS: Persona[] = [
     systemPrompt: 'You are an experienced Product Manager. Focus on user requirements, acceptance criteria, user stories, business logic, and prioritization. Break down features into clear, actionable specifications. Consider edge cases from the user\'s perspective. When discussing implementation, focus on WHAT needs to be built and WHY, not HOW.',
     color: '#6366f1',
     icon: 'ClipboardList',
+    integrations: { clickup: true },
   },
   {
     id: 'developer',
@@ -298,6 +317,7 @@ export const DEFAULT_PERSONAS: Persona[] = [
     systemPrompt: 'You are a Senior Software Developer. Focus on architecture, code implementation, design patterns, technical debt, and best practices. When discussing features, propose concrete technical approaches — which files to modify, data structures, APIs, and component design. Consider performance, maintainability, and scalability.',
     color: '#22c55e',
     icon: 'Code',
+    integrations: { clickup: true, github: true },
   },
   {
     id: 'qc',
@@ -306,8 +326,56 @@ export const DEFAULT_PERSONAS: Persona[] = [
     systemPrompt: 'You are a Quality Assurance Engineer. Focus on test cases, edge cases, regression risks, error handling, and quality criteria. When reviewing features or code, identify potential bugs, missing validations, accessibility issues, and security concerns. Define clear pass/fail criteria for every requirement.',
     color: '#f59e0b',
     icon: 'ShieldCheck',
+    integrations: { clickup: true, github: true },
   },
 ];
+
+// ─── Team Chat ────────────────────────────────────────────────
+
+export interface TeamUser {
+  username: string;
+  avatarUrl?: string;
+  repo: string; // owner/repo — the room key
+  status: 'online' | 'away' | 'busy';
+  connectedAt: string;
+}
+
+export interface TeamMessage {
+  id: string;
+  from: string; // username
+  content: string;
+  timestamp: string;
+  repo: string;
+}
+
+/** Minimal session info broadcast to teammates */
+export interface SharedSessionInfo {
+  id: string;
+  title: string;
+  owner: string; // GitHub username of creator
+  repo: string;
+  mode: 'single' | 'roundtable';
+  personas: string[]; // persona names (for display)
+  participantCount: number;
+  messageCount: number;
+}
+
+/** Wire protocol for WebSocket messages */
+export type TeamWireMessage =
+  | { type: 'join'; user: TeamUser }
+  | { type: 'leave'; username: string; repo: string }
+  | { type: 'presence'; users: TeamUser[] }
+  | { type: 'message'; message: TeamMessage }
+  | { type: 'typing'; username: string; repo: string }
+  | { type: 'error'; error: string }
+  // Session sharing
+  | { type: 'session-share'; session: SharedSessionInfo }
+  | { type: 'session-unshare'; sessionId: string; repo: string }
+  | { type: 'session-join'; sessionId: string; username: string; repo: string }
+  | { type: 'session-leave'; sessionId: string; username: string; repo: string }
+  | { type: 'session-message'; sessionId: string; message: InsightsMessage; repo: string }
+  | { type: 'session-participants'; sessionId: string; participants: string[]; repo: string }
+  | { type: 'session-list'; sessions: SharedSessionInfo[] };
 
 // Service Status
 export type ServiceStatusLevel = 'operational' | 'degraded' | 'major' | 'critical' | 'unknown';
@@ -351,6 +419,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   jiraApiToken: '',
   jiraDomain: '',
   jiraProjectKey: '',
+  teamServerUrl: '',
+  teamAutoConnect: false,
   defaultModel: 'claude-opus-4-6',
   workingDirectory: '',
   maxTerminals: 12,

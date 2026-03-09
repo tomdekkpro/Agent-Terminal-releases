@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Settings, Terminal, CheckSquare, Bot, Palette, Save, RotateCcw, Loader2, CheckCircle, XCircle, Info, RefreshCw, Download } from 'lucide-react';
+import { Settings, Terminal, CheckSquare, Bot, Palette, Save, RotateCcw, Loader2, CheckCircle, XCircle, Info, RefreshCw, Download, Users } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settings-store';
 import type { AppSettings, AgentProviderMeta } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
 
-type SettingsSection = 'general' | 'terminal' | 'tasks' | 'agent' | 'appearance';
+type SettingsSection = 'general' | 'terminal' | 'tasks' | 'agent' | 'team' | 'appearance';
 
 const sections: { id: SettingsSection; icon: typeof Terminal; label: string; description: string }[] = [
   { id: 'general', icon: Info, label: 'General', description: 'Version and update settings' },
   { id: 'terminal', icon: Terminal, label: 'Terminal', description: 'Font, cursor, and display settings' },
   { id: 'tasks', icon: CheckSquare, label: 'Tasks', description: 'Task manager integration' },
   { id: 'agent', icon: Bot, label: 'Agent', description: 'AI agent provider configuration' },
+  { id: 'team', icon: Users, label: 'Team', description: 'Real-time team chat settings' },
   { id: 'appearance', icon: Palette, label: 'Appearance', description: 'Theme and display options' },
 ];
 
@@ -710,6 +711,60 @@ export function SettingsView() {
                   />
                   <p className="text-[10px] text-[var(--text-muted)] mt-1">Maximum number of parallel terminals (1-12)</p>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {activeSection === 'team' && (
+            <div className="space-y-6 max-w-xl">
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">Team Chat</h2>
+              <p className="text-sm text-[var(--text-muted)]">
+                Chat in real-time with teammates who have Agent Terminal open on the same GitHub project.
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm text-[var(--text-secondary)] mb-1.5">Relay Server URL</label>
+                  <input
+                    type="text"
+                    value={localSettings.teamServerUrl}
+                    onChange={(e) => handleChange('teamServerUrl', e.target.value)}
+                    placeholder="ws://localhost:9877"
+                    className="w-full text-sm bg-[var(--bg-primary)] text-[var(--text-primary)] border border-[var(--border)] rounded-md px-3 py-2 outline-none focus:border-[var(--accent)]"
+                  />
+                  <p className="text-xs text-[var(--text-muted)] mt-1">
+                    Connect to a shared relay server, or click "Host" in the Team panel to run one locally.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between py-2">
+                  <div>
+                    <label className="block text-sm text-[var(--text-secondary)]">Auto-connect</label>
+                    <p className="text-xs text-[var(--text-muted)] mt-0.5">Automatically connect when opening a project</p>
+                  </div>
+                  <button
+                    onClick={() => handleChange('teamAutoConnect', !localSettings.teamAutoConnect)}
+                    className={cn(
+                      'relative w-10 h-5 rounded-full transition-colors',
+                      localSettings.teamAutoConnect ? 'bg-[var(--accent)]' : 'bg-[var(--bg-tertiary)]',
+                    )}
+                  >
+                    <span className={cn(
+                      'absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform',
+                      localSettings.teamAutoConnect ? 'left-[22px]' : 'left-0.5',
+                    )} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-[var(--bg-tertiary)] rounded-lg p-4 text-xs text-[var(--text-muted)] space-y-2">
+                <p className="font-medium text-[var(--text-secondary)]">How it works</p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>Your GitHub identity is detected via <code className="text-[var(--accent)]">gh auth status</code></li>
+                  <li>Your project is identified by its <code className="text-[var(--accent)]">git remote origin</code> URL</li>
+                  <li>Teammates on the same repo are grouped into a shared chat room</li>
+                  <li>One person can "Host" a local server, or point everyone to a shared URL</li>
+                </ul>
               </div>
             </div>
           )}

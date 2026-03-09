@@ -6,6 +6,7 @@ import { Copy, Check, Sparkles, Terminal, MoreHorizontal, Trash2, RefreshCw } fr
 import type { InsightsMessage, Persona } from '../../../shared/types';
 import { useTerminalStore } from '../../stores/terminal-store';
 import { PersonaBadge } from './PersonaBadge';
+import { cn } from '../../../shared/utils';
 
 interface ChatMessageProps {
   message: InsightsMessage;
@@ -140,10 +141,15 @@ export function ChatMessage({ message, providerLabel, persona, onDelete, onRetry
     setTimeout(() => setCopied(false), 2000);
   }, [message.content]);
 
+  const isTeamMessage = !!message.teamUser;
+
   if (isUser) {
     return (
-      <div className="flex justify-end px-4 py-3 group">
-        <div className="max-w-[75%] flex flex-col items-end gap-1">
+      <div className={cn('flex px-4 py-3 group', isTeamMessage ? 'justify-start' : 'justify-end')}>
+        <div className={cn('max-w-[75%] flex flex-col gap-1', isTeamMessage ? 'items-start' : 'items-end')}>
+          {isTeamMessage && (
+            <span className="text-[10px] font-medium text-cyan-400 px-1">{message.teamUser}</span>
+          )}
           <div className="flex items-center gap-1">
             {/* Context menu for user messages */}
             <div className="relative opacity-0 group-hover:opacity-100 transition-opacity" ref={!isUser ? undefined : menuRef}>
@@ -172,7 +178,12 @@ export function ChatMessage({ message, providerLabel, persona, onDelete, onRetry
                 </div>
               )}
             </div>
-            <div className="bg-[var(--accent)] text-white rounded-2xl rounded-br-sm px-4 py-2.5">
+            <div className={cn(
+              'rounded-2xl px-4 py-2.5',
+              isTeamMessage
+                ? 'bg-cyan-500/15 text-[var(--text-primary)] rounded-bl-sm'
+                : 'bg-[var(--accent)] text-white rounded-br-sm',
+            )}>
               <p className="text-sm whitespace-pre-wrap">{message.content}</p>
             </div>
           </div>

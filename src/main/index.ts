@@ -10,6 +10,7 @@ import { registerServiceStatusHandlers, stopServiceStatusPolling } from './ipc/s
 import { registerProjectHandlers } from './ipc/project-handlers';
 import { registerGitHandlers } from './ipc/git-handlers';
 import { registerInsightsHandlers, cleanupInsights } from './ipc/insights-handlers';
+import { registerTeamHandlers, cleanupTeam } from './ipc/team-handlers';
 import { initAutoUpdater } from './updater';
 import { IPC_CHANNELS } from '../shared/constants';
 import { registerAllAgents } from './ipc/providers/agents';
@@ -107,6 +108,7 @@ app.whenReady().then(() => {
   registerProjectHandlers(ipcMain, getWindow);
   registerGitHandlers(ipcMain);
   registerInsightsHandlers(ipcMain, getWindow);
+  registerTeamHandlers(ipcMain, getWindow);
   registerServiceStatusHandlers(ipcMain, getWindow);
   initAutoUpdater(getWindow);
 
@@ -127,6 +129,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', async () => {
   trackShutdown();
   cleanupInsights();
+  cleanupTeam();
   stopUsagePolling();
   stopServiceStatusPolling();
   if (terminalManager) {

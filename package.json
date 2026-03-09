@@ -141,6 +141,7 @@
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.5.0",
     "uuid": "^13.0.0",
+    "ws": "^8.19.0",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
@@ -150,6 +151,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.1.4",
     "electron": "^40.6.1",
     "electron-builder": "^26.8.1",

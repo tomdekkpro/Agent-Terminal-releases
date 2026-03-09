@@ -10,6 +10,7 @@ import { useSettingsStore } from './stores/settings-store';
 import { useTerminalStore } from './stores/terminal-store';
 import { InsightsView } from './components/insights';
 import { UpdateNotification } from './components/updates/UpdateNotification';
+import { TeamPanel } from './components/team/TeamPanel';
 
 export type ViewType = 'terminals' | 'tasks' | 'insights' | 'settings';
 
@@ -142,6 +143,7 @@ export default function App() {
         {activeView === 'settings' && <SettingsView />}
       </main>
       <UpdateNotification />
+      <TeamPanel />
     </div>
   );
 }

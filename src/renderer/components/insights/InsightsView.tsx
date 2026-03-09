@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Sparkles, PanelLeftClose, PanelLeftOpen, Square, Send, FolderOpen, AlertCircle, X, ChevronDown, Download, Users, User, ClipboardList, Play, Terminal, Settings2 } from 'lucide-react';
+import { Sparkles, PanelLeftClose, PanelLeftOpen, Square, Send, FolderOpen, AlertCircle, X, ChevronDown, Download, Users, User, ClipboardList, Play, Terminal, Settings2, Share2, Globe } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useInsightsStore } from '../../stores/insights-store';
@@ -12,8 +12,9 @@ import { SessionSidebar } from './SessionSidebar';
 import { PersonaBadge } from './PersonaBadge';
 import { PersonaManager } from './PersonaManager';
 import { PipelineCard } from './PipelineCard';
-import type { AgentProviderId, AgentProviderMeta, InsightsModel, InsightsMessage, Persona } from '../../../shared/types';
+import type { AgentProviderId, AgentProviderMeta, InsightsModel, InsightsMessage, Persona, SharedSessionInfo } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
+import { useTeamStore, onSessionMessage, onSessionParticipants } from '../../stores/team-store';
 
 const QUICK_PROMPTS = [
   { label: 'Explain codebase', prompt: 'Give me a high-level overview of this codebase. What are the main components, how are they organized, and what does the application do?' },
@@ -88,6 +89,75 @@ export function InsightsView() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputAreaRef = useRef<HTMLDivElement>(null);
+
+  // Team integration
+  const teamConnected = useTeamStore((s) => s.connected);
+  const teamUser = useTeamStore((s) => s.currentUser);
+  const sharedSessions = useTeamStore((s) => s.sharedSessions);
+  const teamShareSession = useTeamStore((s) => s.shareSession);
+  const teamJoinSession = useTeamStore((s) => s.joinSession);
+  const teamSendSessionMessage = useTeamStore((s) => s.sendSessionMessage);
+
+  // Listen for incoming session messages from teammates
+  useEffect(() => {
+    const unsubMsg = onSessionMessage((sessionId, message) => {
+      const { activeSession } = useInsightsStore.getState();
+      if (activeSession?.id === sessionId) {
+        // Append teammate's message to active session
+        useInsightsStore.setState({
+          activeSession: {
+            ...activeSession,
+            messages: [...activeSession.messages, message],
+          },
+        });
+      }
+    });
+
+    const unsubParticipants = onSessionParticipants((sessionId, participants) => {
+      const { activeSession } = useInsightsStore.getState();
+      if (activeSession?.id === sessionId) {
+        useInsightsStore.setState({
+          activeSession: { ...activeSession, participants },
+        });
+      }
+    });
+
+    return () => { unsubMsg(); unsubParticipants(); };
+  }, []);
+
+  const handleShareSession = useCallback(async () => {
+    if (!activeSession || !teamConnected || !teamUser) return;
+    const personaNames = (activeSession.personas || []).map((pid) => {
+      const p = personas.find((pp) => pp.id === pid);
+      return p?.name || pid;
+    });
+    const info: SharedSessionInfo = {
+      id: activeSession.id,
+      title: activeSession.title,
+      owner: teamUser.username,
+      repo: teamUser.repo,
+      mode: activeSession.mode || 'single',
+      personas: personaNames,
+      participantCount: (activeSession.participants?.length || 0) + 1,
+      messageCount: activeSession.messages.length,
+    };
+    await teamShareSession(info);
+    // Mark session as shared
+    await window.electronAPI.insightsUpdateSession(activeSession.id, { shared: true });
+    useInsightsStore.setState({
+      activeSession: { ...activeSession, shared: true },
+    });
+  }, [activeSession, teamConnected, teamUser, personas, teamShareSession]);
+
+  const handleJoinSharedSession = useCallback(async (session: SharedSessionInfo) => {
+    await teamJoinSession(session.id);
+    // Check if we already have this session locally, if not create a placeholder
+    const existing = sessions.find((s) => s.id === session.id);
+    if (existing) {
+      await selectSession(session.id);
+    }
+    // The session content will sync through session-message events
+  }, [teamJoinSession, sessions, selectSession]);
 
   // Load agent providers and personas on mount
   useEffect(() => {
@@ -250,6 +320,18 @@ export function InsightsView() {
     }, 0);
   };
 
+  // Broadcast new messages to team if session is shared
+  const broadcastNewMessages = useCallback((prevCount: number) => {
+    const session = useInsightsStore.getState().activeSession;
+    if (!session?.shared || !teamConnected) return;
+    const newMsgs = session.messages.slice(prevCount);
+    for (const msg of newMsgs) {
+      if (!msg.teamUser) { // Don't re-broadcast messages from teammates
+        teamSendSessionMessage(session.id, msg);
+      }
+    }
+  }, [teamConnected, teamSendSessionMessage]);
+
   const handleSend = useCallback(async (content: string) => {
     const text = content.trim();
     if (!text || isStreaming) return;
@@ -257,6 +339,7 @@ export function InsightsView() {
     setMentionQuery(null);
 
     const { insightsModel, agentModel } = getModelParams();
+    const prevMsgCount = activeSession?.messages.length || 0;
 
     // Check for @mentions — route to specific persona(s)
     if (activeSession?.mode === 'roundtable') {
@@ -285,11 +368,13 @@ export function InsightsView() {
         }
         // Refresh sidebar once after all responses complete
         await useInsightsStore.getState().loadSessions();
+        broadcastNewMessages(prevMsgCount);
         return;
       }
 
       // No specific mention — advance through all personas
       await advanceRoundTable(text, insightsModel, agentModel);
+      broadcastNewMessages(prevMsgCount);
       return;
     }
 
@@ -300,8 +385,9 @@ export function InsightsView() {
       useInsightsStore.getState().sendMessage(text, insightsModel, agentModel);
       return;
     }
-    sendMessage(text, insightsModel, agentModel);
-  }, [activeSession, isStreaming, selectedProjectPath, createSession, sendMessage, advanceRoundTable, getModelParams, parseMentions, store]);
+    await sendMessage(text, insightsModel, agentModel);
+    broadcastNewMessages(prevMsgCount);
+  }, [activeSession, isStreaming, selectedProjectPath, createSession, sendMessage, advanceRoundTable, getModelParams, parseMentions, store, broadcastNewMessages]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // Handle mention autocomplete navigation
@@ -479,6 +565,8 @@ export function InsightsView() {
           onDelete={deleteSession}
           onRename={renameSession}
           onTogglePin={togglePin}
+          sharedSessions={teamConnected ? sharedSessions : []}
+          onJoinSharedSession={handleJoinSharedSession}
         />
       )}
 
@@ -547,6 +635,25 @@ export function InsightsView() {
                   </button>
                 )}
               </>
+            )}
+
+            {/* Share with team */}
+            {teamConnected && activeSession && !activeSession.shared && (
+              <button
+                onClick={handleShareSession}
+                className="flex items-center gap-1 text-xs text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 px-2.5 py-1 rounded-md transition-colors"
+                title="Share this session with your team"
+              >
+                <Share2 className="w-3 h-3" /> Share
+              </button>
+            )}
+            {activeSession?.shared && (
+              <span className="flex items-center gap-1 text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">
+                <Globe className="w-2.5 h-2.5" /> Shared
+                {activeSession.participants && activeSession.participants.length > 0 && (
+                  <span className="text-green-300">({activeSession.participants.length + 1})</span>
+                )}
+              </span>
             )}
 
             {/* Persona manager */}
