@@ -481,11 +481,15 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate }: QCTestPa
   }, [sessionId, qcTask, onTaskUpdate]);
 
   const handleGenerate = useCallback(async () => {
-    if (!title.trim() || !targetUrl.trim()) return;
+    // Use current task values when regenerating, form values when creating
+    const genTitle = qcTask?.title || title;
+    const genDesc = qcTask?.description || description;
+    const genUrl = qcTask?.targetUrl || targetUrl;
+    if (!genTitle.trim() || !genUrl.trim()) return;
     setGenerating(true);
     setError(null);
     try {
-      const result = await window.electronAPI.qcGenerateTests(sessionId, title, description, targetUrl, model);
+      const result = await window.electronAPI.qcGenerateTests(sessionId, genTitle, genDesc, genUrl, model);
       if (result.success) {
         onTaskUpdate(result.data);
         setShowCreateForm(false);
@@ -497,7 +501,7 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate }: QCTestPa
     } finally {
       setGenerating(false);
     }
-  }, [sessionId, title, description, targetUrl, model, onTaskUpdate]);
+  }, [sessionId, qcTask, title, description, targetUrl, model, onTaskUpdate]);
 
   const handleRunAll = useCallback(async () => {
     setRunningAll(true);
