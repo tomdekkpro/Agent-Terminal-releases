@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import '@xterm/xterm/css/xterm.css';
+@import 'highlight.js/styles/github-dark.min.css';
 
 @source "../**/*.{js,ts,jsx,tsx}";
 
@@ -96,6 +97,9 @@
   border-top: 1px solid var(--border);
   margin: 1em 0;
 }
+
+/* Override highlight.js background to match app theme */
+.hljs { background: var(--bg-primary) !important; }
 
 /* Custom drag region for macOS titlebar */
 .drag-region {

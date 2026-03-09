@@ -33,6 +33,7 @@ export async function listSessions(): Promise<InsightsSessionMeta[]> {
         model: session.model,
         provider: session.provider,
         projectPath: session.projectPath,
+        pinned: session.pinned,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
       });
@@ -41,7 +42,12 @@ export async function listSessions(): Promise<InsightsSessionMeta[]> {
     }
   }
 
-  return metas.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  // Pinned sessions first, then by updatedAt
+  return metas.sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+  });
 }
 
 export async function getSession(id: string): Promise<InsightsSession | null> {
@@ -72,4 +78,37 @@ export async function renameSession(id: string, title: string): Promise<void> {
   session.title = title;
   session.updatedAt = new Date().toISOString();
   await saveSession(session);
+}
+
+export async function togglePinSession(id: string): Promise<boolean> {
+  const session = await getSession(id);
+  if (!session) return false;
+  session.pinned = !session.pinned;
+  await saveSession(session);
+  return session.pinned;
+}
+
+export async function deleteMessageAndAfter(sessionId: string, messageId: string): Promise<InsightsSession | null> {
+  const session = await getSession(sessionId);
+  if (!session) return null;
+  const idx = session.messages.findIndex((m) => m.id === messageId);
+  if (idx === -1) return session;
+  session.messages = session.messages.slice(0, idx);
+  session.updatedAt = new Date().toISOString();
+  await saveSession(session);
+  return session;
+}
+
+export async function exportSessionAsMarkdown(id: string): Promise<string | null> {
+  const session = await getSession(id);
+  if (!session) return null;
+  const lines: string[] = [`# ${session.title}`, ''];
+  if (session.projectPath) lines.push(`**Project:** ${session.projectPath}`, '');
+  lines.push(`**Provider:** ${session.provider || 'claude'} | **Model:** ${session.model}`, '');
+  lines.push(`**Created:** ${new Date(session.createdAt).toLocaleString()}`, '---', '');
+  for (const msg of session.messages) {
+    const label = msg.role === 'user' ? '## You' : `## ${session.provider || 'Claude'}`;
+    lines.push(label, '', msg.content, '');
+  }
+  return lines.join('\n');
 }

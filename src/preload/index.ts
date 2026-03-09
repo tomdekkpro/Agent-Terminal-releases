@@ -125,6 +125,10 @@ const electronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_SEND_MESSAGE, sessionId, content, model, projectPath, copilotModel),
   insightsAbortStream: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_ABORT_STREAM, sessionId),
+  insightsPinSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_PIN_SESSION, id),
+  insightsDeleteMessage: (sessionId: string, messageId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_DELETE_MESSAGE, sessionId, messageId),
+  insightsExportSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.INSIGHTS_EXPORT_SESSION, id),
   onInsightsStreamEvent: (callback: (event: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(IPC_CHANNELS.INSIGHTS_STREAM_EVENT, handler);

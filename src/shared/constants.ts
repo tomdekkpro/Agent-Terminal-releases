@@ -72,6 +72,9 @@ export const IPC_CHANNELS = {
   INSIGHTS_SEND_MESSAGE: 'insights:send-message',
   INSIGHTS_ABORT_STREAM: 'insights:abort-stream',
   INSIGHTS_STREAM_EVENT: 'insights:stream-event',
+  INSIGHTS_PIN_SESSION: 'insights:pin-session',
+  INSIGHTS_DELETE_MESSAGE: 'insights:delete-message',
+  INSIGHTS_EXPORT_SESSION: 'insights:export-session',
   // Updates
   UPDATE_CHECK: 'update:check',
   UPDATE_DOWNLOAD: 'update:download',

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Sparkles, PanelLeftClose, PanelLeftOpen, Square, Send, FolderOpen, AlertCircle, X, ChevronDown } from 'lucide-react';
+import { Sparkles, PanelLeftClose, PanelLeftOpen, Square, Send, FolderOpen, AlertCircle, X, ChevronDown, Download } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useInsightsStore } from '../../stores/insights-store';
@@ -58,6 +58,7 @@ export function InsightsView() {
     error,
     selectedProjectPath,
     selectedProvider,
+    searchQuery,
     loadSessions,
     selectSession,
     createSession,
@@ -70,6 +71,11 @@ export function InsightsView() {
     clearError,
     setSelectedProjectPath,
     setSelectedProvider,
+    setSearchQuery,
+    togglePin,
+    deleteMessage,
+    retryLastMessage,
+    exportSession,
   } = useInsightsStore();
 
   const projects = useProjectStore((s) => s.projects);
@@ -80,8 +86,10 @@ export function InsightsView() {
   const [input, setInput] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const [agentProviders, setAgentProviders] = useState<AgentProviderMeta[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputAreaRef = useRef<HTMLDivElement>(null);
 
   // Load agent providers on mount
   useEffect(() => {
@@ -153,6 +161,81 @@ export function InsightsView() {
     }
   }, [activeSession?.model, activeSession?.copilotModel]);
 
+  // Keyboard shortcut: Ctrl+I to focus input
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'i' && !e.shiftKey && !e.altKey && !e.metaKey) {
+        // Only focus if we're on the insights view
+        if (textareaRef.current) {
+          e.preventDefault();
+          textareaRef.current.focus();
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  // File drag-and-drop on input area
+  useEffect(() => {
+    const el = inputAreaRef.current;
+    if (!el) return;
+
+    let dragCounter = 0;
+
+    const onDragEnter = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounter++;
+      if (e.dataTransfer?.types.includes('Files')) setIsDragOver(true);
+    };
+    const onDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    };
+    const onDragLeave = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounter--;
+      if (dragCounter <= 0) { dragCounter = 0; setIsDragOver(false); }
+    };
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(false);
+      dragCounter = 0;
+
+      const files = e.dataTransfer?.files;
+      if (!files || files.length === 0) return;
+
+      const paths: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        let filePath: string | undefined;
+        try {
+          filePath = window.electronAPI.getPathForFile(files[i]);
+        } catch {
+          filePath = (files[i] as any).path;
+        }
+        if (filePath) paths.push(filePath);
+      }
+
+      if (paths.length > 0) {
+        const pathText = paths.join(' ');
+        setInput((prev) => prev ? `${prev} ${pathText}` : pathText);
+        textareaRef.current?.focus();
+      }
+    };
+
+    el.addEventListener('dragenter', onDragEnter, true);
+    el.addEventListener('dragover', onDragOver, true);
+    el.addEventListener('dragleave', onDragLeave, true);
+    el.addEventListener('drop', onDrop, true);
+    return () => {
+      el.removeEventListener('dragenter', onDragEnter, true);
+      el.removeEventListener('dragover', onDragOver, true);
+      el.removeEventListener('dragleave', onDragLeave, true);
+      el.removeEventListener('drop', onDrop, true);
+    };
+  }, []);
+
   const handleSend = useCallback(
     async (content: string) => {
       const text = content.trim();
@@ -160,7 +243,6 @@ export function InsightsView() {
       setInput('');
 
       const currentProvider = useInsightsStore.getState().selectedProvider;
-      // For Claude, map to InsightsModel; for others pass the model id as copilotModel
       const isClaudeProvider = currentProvider === 'claude';
       const insightsModel: InsightsModel = isClaudeProvider ? (selectedModel as InsightsModel) || 'sonnet' : 'sonnet';
       const agentModel = !isClaudeProvider ? selectedModel : undefined;
@@ -216,12 +298,33 @@ export function InsightsView() {
     setSelectedProvider(provider);
   };
 
+  const handleExport = async () => {
+    const md = await exportSession();
+    if (md) {
+      navigator.clipboard.writeText(md);
+    }
+  };
+
+  const handleRetry = () => {
+    const currentProvider = useInsightsStore.getState().selectedProvider;
+    const isClaudeProvider = currentProvider === 'claude';
+    const insightsModel: InsightsModel = isClaudeProvider ? (selectedModel as InsightsModel) || 'sonnet' : 'sonnet';
+    const agentModel = !isClaudeProvider ? selectedModel : undefined;
+    retryLastMessage(insightsModel, agentModel);
+  };
+
   const messages: InsightsMessage[] = activeSession?.messages ?? [];
-
-  // Determine if provider is locked (active session has messages)
   const providerLocked = !!activeSession && messages.length > 0;
-
   const providerLabel = currentProviderMeta?.displayName || selectedProvider;
+
+  // Find last assistant message index for retry button
+  let lastAssistantIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'assistant') {
+      lastAssistantIdx = i;
+      break;
+    }
+  }
 
   return (
     <div className="flex h-full">
@@ -230,10 +333,13 @@ export function InsightsView() {
         <SessionSidebar
           sessions={sessions}
           activeSessionId={activeSession?.id ?? null}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
           onSelect={selectSession}
           onNew={handleNewChat}
           onDelete={deleteSession}
           onRename={renameSession}
+          onTogglePin={togglePin}
         />
       )}
 
@@ -274,6 +380,17 @@ export function InsightsView() {
           </div>
 
           <div className="ml-auto flex items-center gap-2">
+            {/* Export button */}
+            {activeSession && messages.length > 0 && (
+              <button
+                onClick={handleExport}
+                className="w-7 h-7 rounded flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+                title="Export chat to clipboard (Markdown)"
+              >
+                <Download className="w-3.5 h-3.5" />
+              </button>
+            )}
+
             {/* Provider picker */}
             <select
               value={selectedProvider}
@@ -348,8 +465,15 @@ export function InsightsView() {
             </div>
           ) : (
             <div>
-              {messages.map((msg) => (
-                <ChatMessage key={msg.id} message={msg} providerLabel={providerLabel} />
+              {messages.map((msg, idx) => (
+                <ChatMessage
+                  key={msg.id}
+                  message={msg}
+                  providerLabel={providerLabel}
+                  onDelete={!isStreaming ? deleteMessage : undefined}
+                  onRetry={!isStreaming && idx === lastAssistantIdx ? handleRetry : undefined}
+                  isLastAssistant={idx === lastAssistantIdx && msg.role === 'assistant'}
+                />
               ))}
               {isStreaming && <StreamingMessage text={streamingText} providerLabel={providerLabel} />}
               <div ref={messagesEndRef} />
@@ -358,14 +482,25 @@ export function InsightsView() {
         </div>
 
         {/* Input area */}
-        <div className="border-t border-[var(--border)] bg-[var(--bg-secondary)] p-3">
+        <div
+          ref={inputAreaRef}
+          className={cn(
+            'border-t border-[var(--border)] bg-[var(--bg-secondary)] p-3 relative',
+            isDragOver && 'ring-2 ring-[var(--accent)] ring-inset',
+          )}
+        >
+          {isDragOver && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--bg-secondary)]/90 backdrop-blur-sm rounded">
+              <span className="text-sm text-[var(--accent)] font-medium">Drop file to add path</span>
+            </div>
+          )}
           <div className="flex items-end gap-2 max-w-4xl mx-auto">
             <textarea
               ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask anything..."
+              placeholder="Ask anything... (drop files to add paths)"
               rows={1}
               disabled={isStreaming}
               className={cn(
@@ -393,7 +528,7 @@ export function InsightsView() {
                     ? 'bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)]'
                     : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]',
                 )}
-                title="Send"
+                title="Send (Enter)"
               >
                 <Send className="w-4 h-4" />
               </button>

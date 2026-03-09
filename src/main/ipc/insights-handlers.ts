@@ -10,6 +10,9 @@ import {
   saveSession,
   deleteSession,
   renameSession,
+  togglePinSession,
+  deleteMessageAndAfter,
+  exportSessionAsMarkdown,
 } from '../insights/session-storage';
 
 export function registerInsightsHandlers(
@@ -148,6 +151,35 @@ export function registerInsightsHandlers(
   ipcMain.handle(IPC_CHANNELS.INSIGHTS_ABORT_STREAM, async (_event, sessionId: string) => {
     abortStream(sessionId);
     return { success: true };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.INSIGHTS_PIN_SESSION, async (_event, id: string) => {
+    try {
+      const pinned = await togglePinSession(id);
+      return { success: true, data: pinned };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to toggle pin' };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.INSIGHTS_DELETE_MESSAGE, async (_event, sessionId: string, messageId: string) => {
+    try {
+      const session = await deleteMessageAndAfter(sessionId, messageId);
+      if (!session) return { success: false, error: 'Session not found' };
+      return { success: true, data: session };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to delete message' };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.INSIGHTS_EXPORT_SESSION, async (_event, id: string) => {
+    try {
+      const md = await exportSessionAsMarkdown(id);
+      if (!md) return { success: false, error: 'Session not found' };
+      return { success: true, data: md };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to export session' };
+    }
   });
 }
 

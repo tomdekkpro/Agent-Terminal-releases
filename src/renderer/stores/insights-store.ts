@@ -16,6 +16,7 @@ interface InsightsState {
   error: string | null;
   selectedProjectPath: string | null;
   selectedProvider: AgentProviderId;
+  searchQuery: string;
 
   loadSessions: () => Promise<void>;
   selectSession: (id: string) => Promise<void>;
@@ -29,6 +30,11 @@ interface InsightsState {
   clearError: () => void;
   setSelectedProjectPath: (path: string | null) => void;
   setSelectedProvider: (provider: AgentProviderId) => void;
+  setSearchQuery: (query: string) => void;
+  togglePin: (id: string) => Promise<void>;
+  deleteMessage: (messageId: string) => Promise<void>;
+  retryLastMessage: (model?: InsightsModel, copilotModel?: string) => Promise<void>;
+  exportSession: () => Promise<string | null>;
 }
 
 export const useInsightsStore = create<InsightsState>((set, get) => ({
@@ -40,6 +46,7 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
   error: null,
   selectedProjectPath: null,
   selectedProvider: 'claude',
+  searchQuery: '',
 
   loadSessions: async () => {
     try {
@@ -56,7 +63,6 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
     try {
       const result = await window.electronAPI.insightsGetSession(id);
       if (result.success) {
-        console.log('[insights] selectSession:', id, 'provider:', result.data.provider, 'copilotModel:', result.data.copilotModel);
         set({
           activeSession: result.data,
           streamingText: '',
@@ -72,10 +78,8 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
 
   createSession: async (model: InsightsModel, projectPath?: string, provider?: AgentProviderId, copilotModel?: string) => {
     try {
-      console.log('[insights] createSession called with provider:', provider, 'copilotModel:', copilotModel);
       const result = await window.electronAPI.insightsCreateSession(model, projectPath, provider, copilotModel);
       if (result.success) {
-        console.log('[insights] createSession result provider:', result.data.provider);
         set({
           activeSession: result.data,
           streamingText: '',
@@ -120,7 +124,6 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
   sendMessage: async (content: string, model?: InsightsModel, copilotModel?: string) => {
     const { activeSession, selectedProjectPath } = get();
     if (!activeSession) return;
-    console.log('[insights] store.sendMessage — session.provider:', activeSession.provider, 'model:', model, 'copilotModel:', copilotModel, 'projectPath:', selectedProjectPath);
 
     const optimisticMsg = {
       id: `temp-${Date.now()}`,
@@ -185,8 +188,78 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
 
   setSelectedProjectPath: (path: string | null) => set({ selectedProjectPath: path }),
 
-  setSelectedProvider: (provider: AgentProviderId) => {
-    console.log('[insights] setSelectedProvider:', provider, new Error().stack?.split('\n')[2]?.trim());
-    set({ selectedProvider: provider });
+  setSelectedProvider: (provider: AgentProviderId) => set({ selectedProvider: provider }),
+
+  setSearchQuery: (query: string) => set({ searchQuery: query }),
+
+  togglePin: async (id: string) => {
+    try {
+      const result = await window.electronAPI.insightsPinSession(id);
+      if (result.success) {
+        await get().loadSessions();
+        const { activeSession } = get();
+        if (activeSession?.id === id) {
+          set({ activeSession: { ...activeSession, pinned: result.data } });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to toggle pin:', err);
+    }
+  },
+
+  deleteMessage: async (messageId: string) => {
+    const { activeSession } = get();
+    if (!activeSession) return;
+    try {
+      const result = await window.electronAPI.insightsDeleteMessage(activeSession.id, messageId);
+      if (result.success) {
+        set({ activeSession: result.data });
+        await get().loadSessions();
+      }
+    } catch (err) {
+      console.error('Failed to delete message:', err);
+    }
+  },
+
+  retryLastMessage: async (model?: InsightsModel, copilotModel?: string) => {
+    const { activeSession } = get();
+    if (!activeSession || activeSession.messages.length === 0) return;
+
+    // Find the last user message
+    const messages = activeSession.messages;
+    let lastUserIdx = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        lastUserIdx = i;
+        break;
+      }
+    }
+    if (lastUserIdx === -1) return;
+
+    const lastUserMsg = messages[lastUserIdx];
+
+    // Delete from the last user message onward (via backend)
+    try {
+      const result = await window.electronAPI.insightsDeleteMessage(activeSession.id, lastUserMsg.id);
+      if (result.success) {
+        set({ activeSession: result.data });
+        // Resend the same message
+        await get().sendMessage(lastUserMsg.content, model, copilotModel);
+      }
+    } catch (err) {
+      console.error('Failed to retry:', err);
+    }
+  },
+
+  exportSession: async () => {
+    const { activeSession } = get();
+    if (!activeSession) return null;
+    try {
+      const result = await window.electronAPI.insightsExportSession(activeSession.id);
+      if (result.success) return result.data;
+      return null;
+    } catch {
+      return null;
+    }
   },
 }));

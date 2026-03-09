@@ -216,6 +216,7 @@ export interface InsightsSession {
   provider?: AgentProviderId;
   copilotModel?: string;
   projectPath?: string;
+  pinned?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -227,6 +228,7 @@ export interface InsightsSessionMeta {
   model: InsightsModel;
   provider?: AgentProviderId;
   projectPath?: string;
+  pinned?: boolean;
   createdAt: string;
   updatedAt: string;
 }
