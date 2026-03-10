@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Sparkles, PanelLeftClose, PanelLeftOpen, Square, Send, FolderOpen, AlertCircle, X, ChevronDown, Download, Users, User, ClipboardList, Play, Terminal, Settings2, Share2, Globe, ShieldCheck, Ticket } from 'lucide-react';
+import { Sparkles, PanelLeftClose, PanelLeftOpen, Square, Send, FolderOpen, AlertCircle, X, ChevronDown, Download, Users, User, ClipboardList, Play, Terminal, Settings2, Share2, Globe, Ticket } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useInsightsStore } from '../../stores/insights-store';
@@ -11,7 +11,6 @@ import { ModelSelector } from './ModelSelector';
 import { SessionSidebar } from './SessionSidebar';
 import { PersonaBadge } from './PersonaBadge';
 import { PersonaManager } from './PersonaManager';
-import { QCTestPanel } from './QCTestPanel';
 import { PipelineCard } from './PipelineCard';
 import { TaskPickerModal } from '../terminal/TerminalView';
 import type { AgentProviderId, AgentProviderMeta, InsightsModel, InsightsMessage, Persona, SharedSessionInfo, TaskManagerTask } from '../../../shared/types';
@@ -62,7 +61,7 @@ export function InsightsView() {
   const {
     sessions, activeSession, isStreaming, streamingText, streamingPersonaId,
     sidebarOpen, error, selectedProjectPath, selectedProvider, searchQuery, personas,
-    loadSessions, selectSession, createSession, createRoundTableSession, createQCSession,
+    loadSessions, selectSession, createSession, createRoundTableSession,
     deleteSession, renameSession, sendMessage, advanceRoundTable,
     abortStream, toggleSidebar, handleStreamEvent, clearError,
     setSelectedProjectPath, setSelectedProvider, setSearchQuery,
@@ -438,12 +437,6 @@ export function InsightsView() {
     setShowPersonaSelector(true);
   };
 
-  const handleNewQCSession = async () => {
-    const { insightsModel, agentModel } = getModelParams();
-    await createQCSession(insightsModel, selectedProjectPath ?? undefined, useInsightsStore.getState().selectedProvider, agentModel);
-    setShowNewChatMenu(false);
-  };
-
   const handleStartRoundTable = async () => {
     if (selectedPersonaIds.length === 0) return;
     const { insightsModel, agentModel } = getModelParams();
@@ -506,17 +499,7 @@ export function InsightsView() {
   const providerLocked = !!activeSession && messages.length > 0;
   const providerLabel = currentProviderMeta?.displayName || selectedProvider;
   const isRoundTable = activeSession?.mode === 'roundtable';
-  const isQCMode = activeSession?.mode === 'qc';
   const discussionStatus = activeSession?.discussionStatus;
-
-  const handleQCTaskUpdate = useCallback(async (task: any) => {
-    if (!activeSession) return;
-    const result = await window.electronAPI.insightsUpdateSession(activeSession.id, { qcTask: task });
-    if (result.success && result.data) {
-      useInsightsStore.setState({ activeSession: result.data });
-      await loadSessions();
-    }
-  }, [activeSession, loadSessions]);
 
   // Find last assistant message index
   let lastAssistantIdx = -1;
@@ -644,7 +627,7 @@ export function InsightsView() {
           ) : (
             <>
               <Sparkles className="w-4 h-4 text-[var(--accent)]" />
-              <span className="text-sm font-medium text-[var(--text-primary)]">{activeSession?.title || 'Insights'}</span>
+              <span className="text-sm font-medium text-[var(--text-primary)]">{activeSession?.title || 'Chat'}</span>
             </>
           )}
 
@@ -741,9 +724,6 @@ export function InsightsView() {
                   <button onClick={handleNewRoundTable} className="w-full text-left px-3 py-2 text-xs hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] flex items-center gap-2">
                     <Users className="w-3.5 h-3.5" /> Round Table
                   </button>
-                  <button onClick={handleNewQCSession} className="w-full text-left px-3 py-2 text-xs hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] flex items-center gap-2">
-                    <ShieldCheck className="w-3.5 h-3.5" /> QC Testing
-                  </button>
                 </div>
               )}
             </div>
@@ -770,20 +750,8 @@ export function InsightsView() {
           </div>
         )}
 
-        {/* QC Mode: show test panel instead of chat */}
-        {isQCMode && activeSession && (
-          <QCTestPanel
-            sessionId={activeSession.id}
-            qcTask={activeSession.qcTask}
-            model={selectedModel || 'sonnet'}
-            onTaskUpdate={handleQCTaskUpdate}
-            onNewTask={handleNewQCSession}
-            onRenameSession={(title) => renameSession(activeSession.id, title)}
-          />
-        )}
-
         {/* Messages or empty state */}
-        {!isQCMode && <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto">
           {messages.length === 0 && !isStreaming ? (
             <div className="flex flex-col items-center justify-center h-full gap-6 px-4">
               <div className="flex flex-col items-center gap-3">
@@ -834,10 +802,10 @@ export function InsightsView() {
               <div ref={messagesEndRef} />
             </div>
           )}
-        </div>}
+        </div>
 
-        {/* Input area (hidden in QC mode) */}
-        {!isQCMode && <div ref={inputAreaRef} className={cn('border-t border-[var(--border)] bg-[var(--bg-secondary)] p-3 relative', isDragOver && 'ring-2 ring-[var(--accent)] ring-inset')}>
+        {/* Input area */}
+        <div ref={inputAreaRef} className={cn('border-t border-[var(--border)] bg-[var(--bg-secondary)] p-3 relative', isDragOver && 'ring-2 ring-[var(--accent)] ring-inset')}>
           {isDragOver && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--bg-secondary)]/90 backdrop-blur-sm rounded">
               <span className="text-sm text-[var(--accent)] font-medium">Drop file to add path</span>
@@ -896,7 +864,7 @@ export function InsightsView() {
               </button>
             )}
           </div>
-        </div>}
+        </div>
       </div>
     </div>
   );

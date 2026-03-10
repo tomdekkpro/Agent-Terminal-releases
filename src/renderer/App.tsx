@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Sidebar } from './components/layout/Sidebar';
 import { ProjectTabBar } from './components/layout/ProjectTabBar';
 import { TerminalView } from './components/terminal/TerminalView';
@@ -9,10 +9,11 @@ import { useProjectStore } from './stores/project-store';
 import { useSettingsStore } from './stores/settings-store';
 import { useTerminalStore } from './stores/terminal-store';
 import { InsightsView } from './components/insights';
+import { QCView } from './components/qc';
 import { UpdateNotification } from './components/updates/UpdateNotification';
 import { TeamPanel } from './components/team/TeamPanel';
 
-export type ViewType = 'terminals' | 'tasks' | 'insights' | 'settings';
+export type ViewType = 'terminals' | 'tasks' | 'qc' | 'insights' | 'settings';
 
 export default function App() {
   const [activeView, setActiveView] = useState<ViewType>('terminals');
@@ -43,6 +44,7 @@ export default function App() {
     const viewKeys: Record<string, ViewType> = {
       t: 'terminals',
       k: 'tasks',
+      q: 'qc',
       i: 'insights',
       s: 'settings',
     };
@@ -82,51 +84,13 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler);
   }, [openProjectIds, tabOrder, setActiveProject]);
 
-  const restoreTerminals = useCallback(async () => {
-    const restored = await restoreState();
-    // Track which agents have been continued (only one --continue per agent)
-    const continuedAgents = new Set<string>();
-    // Create PTYs for each restored terminal
-    for (const terminal of restored) {
-      try {
-        await window.electronAPI.createTerminal({
-          id: terminal.id,
-          cwd: terminal.cwd || '',
-          cols: 80,
-          rows: 24,
-        });
-        if (terminal.isClaudeMode) {
-          const agentId = terminal.agentProvider || 'claude';
-          const resumeCwd = terminal.claudeCwd || terminal.cwd;
-
-          if (agentId === 'claude') {
-            // Claude supports per-session resume
-            await window.electronAPI.resumeAgent(terminal.id, 'claude', {
-              sessionId: terminal.claudeSessionId,
-              cwd: resumeCwd,
-              skipPermissions: terminal.skipPermissions,
-            });
-          } else {
-            // Other agents: resume the first one with --continue, reset the rest
-            if (!continuedAgents.has(agentId)) {
-              await window.electronAPI.resumeAgent(terminal.id, agentId, { cwd: terminal.cwd, skipPermissions: terminal.skipPermissions });
-              continuedAgents.add(agentId);
-            } else {
-              useTerminalStore.getState().setClaudeMode(terminal.id, false);
-            }
-          }
-        }
-      } catch {
-        useTerminalStore.getState().setTerminalStatus(terminal.id, 'exited');
-      }
-    }
-  }, [restoreState]);
-
   useEffect(() => {
     loadProjects();
     loadSettings();
-    restoreTerminals();
-  }, [loadProjects, loadSettings, restoreTerminals]);
+    // Load saved terminals into store with needsRestore flag
+    // (PTYs are NOT created yet — each terminal shows a restore banner)
+    restoreState();
+  }, [loadProjects, loadSettings, restoreState]);
 
   return (
     <div className="flex h-screen bg-[var(--bg-primary)]">
@@ -138,7 +102,8 @@ export default function App() {
             <TerminalView projectId={activeProjectId ?? undefined} />
           </>
         )}
-        {activeView === 'tasks' && <TasksView />}
+        {activeView === 'tasks' && <TasksView onNavigateToTerminal={() => setActiveView('terminals')} />}
+        {activeView === 'qc' && <QCView />}
         {activeView === 'insights' && <InsightsView />}
         {activeView === 'settings' && <SettingsView />}
       </main>

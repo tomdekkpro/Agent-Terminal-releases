@@ -1,9 +1,9 @@
 import { useState, useMemo } from 'react';
-import { Plus, Trash2, MessageSquare, FolderOpen, Sparkles, Search, Pin, X, Users, Globe } from 'lucide-react';
-import type { InsightsSessionMeta, SharedSessionInfo } from '../../../shared/types';
+import { Plus, Trash2, Search, Pin, X, ShieldCheck, CheckCircle, XCircle, Loader2, Timer, FolderOpen, Clock } from 'lucide-react';
+import type { InsightsSessionMeta } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
 
-interface SessionSidebarProps {
+interface QCSidebarProps {
   sessions: InsightsSessionMeta[];
   activeSessionId: string | null;
   searchQuery: string;
@@ -13,17 +13,7 @@ interface SessionSidebarProps {
   onDelete: (id: string) => void;
   onRename: (id: string, title: string) => void;
   onTogglePin: (id: string) => void;
-  sharedSessions?: SharedSessionInfo[];
-  onJoinSharedSession?: (session: SharedSessionInfo) => void;
 }
-
-const PROVIDER_LABELS: Record<string, { label: string; color: string }> = {
-  claude: { label: 'Claude', color: 'text-purple-400' },
-  copilot: { label: 'Copilot', color: 'text-emerald-400' },
-  gemini: { label: 'Gemini', color: 'text-blue-400' },
-  qwen: { label: 'Qwen', color: 'text-cyan-400' },
-  aider: { label: 'Aider', color: 'text-amber-400' },
-};
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -37,6 +27,17 @@ function formatDate(iso: string): string {
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 7) return `${diffDays}d ago`;
   return d.toLocaleDateString();
+}
+
+function formatDuration(ms: number): string {
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const remSecs = secs % 60;
+  if (mins < 60) return `${mins}m${remSecs > 0 ? ` ${remSecs}s` : ''}`;
+  const hours = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return `${hours}h${remMins > 0 ? ` ${remMins}m` : ''}`;
 }
 
 function getDateGroup(iso: string): string {
@@ -65,7 +66,7 @@ interface GroupedSessions {
   sessions: InsightsSessionMeta[];
 }
 
-export function SessionSidebar({
+export function QCSidebar({
   sessions,
   activeSessionId,
   searchQuery,
@@ -75,9 +76,7 @@ export function SessionSidebar({
   onDelete,
   onRename,
   onTogglePin,
-  sharedSessions = [],
-  onJoinSharedSession,
-}: SessionSidebarProps) {
+}: QCSidebarProps) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState('');
 
@@ -93,16 +92,13 @@ export function SessionSidebar({
     setRenamingId(null);
   };
 
-  // Filter and group sessions
   const { pinnedSessions, groupedSessions } = useMemo(() => {
-    // Exclude QC sessions — they are now in their own dedicated view
-    const nonQC = sessions.filter((s) => s.mode !== 'qc');
     const filtered = searchQuery
-      ? nonQC.filter((s) =>
+      ? sessions.filter((s) =>
           s.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
           (s.projectPath && s.projectPath.toLowerCase().includes(searchQuery.toLowerCase()))
         )
-      : nonQC;
+      : sessions;
 
     const pinned = filtered.filter((s) => s.pinned);
     const unpinned = filtered.filter((s) => !s.pinned);
@@ -121,8 +117,6 @@ export function SessionSidebar({
   }, [sessions, searchQuery]);
 
   const renderSession = (s: InsightsSessionMeta) => {
-    const providerInfo = PROVIDER_LABELS[s.provider || 'claude'] || PROVIDER_LABELS.claude;
-
     return (
       <div
         key={s.id}
@@ -157,17 +151,45 @@ export function SessionSidebar({
               }}
             >
               <div className="flex items-center gap-1.5">
-                <p className="text-sm truncate text-[var(--text-primary)]">{s.title}</p>
+                <ShieldCheck className={cn('w-3 h-3 shrink-0',
+                  s.qcStatus === 'completed' && (s.qcFailed ?? 0) > 0 ? 'text-red-400'
+                  : s.qcStatus === 'completed' && s.qcFailed === 0 ? 'text-emerald-400'
+                  : 'text-amber-400',
+                )} />
+                <p className={cn('text-sm truncate',
+                  s.qcStatus === 'completed' && (s.qcFailed ?? 0) > 0
+                    ? 'text-red-400'
+                    : 'text-[var(--text-primary)]',
+                )}>{s.title}</p>
+                {s.qcStatus === 'running' && (
+                  <Loader2 className="w-3 h-3 text-blue-400 animate-spin shrink-0" />
+                )}
+                {s.qcStatus === 'completed' && s.qcFailed === 0 && (
+                  <CheckCircle className="w-3 h-3 text-emerald-400 shrink-0" />
+                )}
+                {s.qcStatus === 'completed' && (s.qcFailed ?? 0) > 0 && (
+                  <XCircle className="w-3 h-3 text-red-400 shrink-0" />
+                )}
               </div>
               <div className="flex items-center gap-2 mt-0.5">
-                <span className={cn('flex items-center gap-0.5 text-[10px]', providerInfo.color)}>
-                  <Sparkles className="w-2.5 h-2.5" />
-                  {providerInfo.label}
-                </span>
-                <span className="flex items-center gap-0.5 text-[10px] text-[var(--text-muted)]">
-                  <MessageSquare className="w-2.5 h-2.5" />
-                  {s.messageCount}
-                </span>
+                {s.qcStatus === 'completed' && s.qcTotal ? (
+                  <span className="flex items-center gap-1 text-[10px]">
+                    <span className="text-emerald-400">{s.qcPassed ?? 0}P</span>
+                    {(s.qcFailed ?? 0) > 0 && <span className="text-red-400">{s.qcFailed}F</span>}
+                    <span className="text-[var(--text-muted)]">/{s.qcTotal}</span>
+                    {s.qcDurationMs != null && (
+                      <span className="flex items-center gap-0.5 text-[var(--text-muted)]">
+                        <Timer className="w-2.5 h-2.5" />
+                        {formatDuration(s.qcDurationMs)}
+                      </span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-0.5 text-[10px] text-amber-400">
+                    <Clock className="w-2.5 h-2.5" />
+                    {s.qcStatus === 'running' ? 'Running...' : s.qcStatus === 'generating' ? 'Generating...' : 'Draft'}
+                  </span>
+                )}
                 <span className="text-[10px] text-[var(--text-muted)]">{formatDate(s.updatedAt)}</span>
                 {folderName(s.projectPath) && (
                   <span className="flex items-center gap-0.5 text-[10px] text-[var(--text-muted)] truncate">
@@ -209,12 +231,12 @@ export function SessionSidebar({
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-3 border-b border-[var(--border)]">
         <span className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-          Chats
+          QC Tests
         </span>
         <button
           onClick={onNew}
           className="w-6 h-6 rounded flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
-          title="New chat"
+          title="New QC test"
         >
           <Plus className="w-4 h-4" />
         </button>
@@ -227,7 +249,7 @@ export function SessionSidebar({
           <input
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search chats..."
+            placeholder="Search QC tests..."
             className="w-full text-xs bg-[var(--bg-primary)] text-[var(--text-primary)] border border-[var(--border)] rounded-md pl-7 pr-7 py-1.5 outline-none focus:border-[var(--accent)] placeholder:text-[var(--text-muted)]"
           />
           {searchQuery && (
@@ -243,53 +265,9 @@ export function SessionSidebar({
 
       {/* Session list */}
       <div className="flex-1 overflow-y-auto py-1">
-        {/* Shared sessions from teammates */}
-        {sharedSessions.length > 0 && (
-          <>
-            <div className="px-3 py-1.5 flex items-center gap-1.5">
-              <Globe className="w-3 h-3 text-cyan-400" />
-              <span className="text-[10px] font-medium text-cyan-400 uppercase tracking-wider">Team Sessions</span>
-            </div>
-            {sharedSessions.map((ss) => (
-              <div
-                key={ss.id}
-                onClick={() => onJoinSharedSession?.(ss)}
-                className="group px-3 py-2.5 cursor-pointer border-l-2 border-transparent hover:bg-[var(--bg-tertiary)] transition-colors"
-              >
-                <div className="flex items-start justify-between gap-1">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-[var(--text-primary)] truncate">{ss.title}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="flex items-center gap-0.5 text-[10px] text-cyan-400">
-                        <Users className="w-2.5 h-2.5" />
-                        {ss.owner}
-                      </span>
-                      <span className="flex items-center gap-0.5 text-[10px] text-[var(--text-muted)]">
-                        <MessageSquare className="w-2.5 h-2.5" />
-                        {ss.messageCount}
-                      </span>
-                      {ss.personas.length > 0 && (
-                        <span className="text-[10px] text-[var(--text-muted)]">
-                          {ss.personas.join(', ')}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onJoinSharedSession?.(ss); }}
-                    className="text-[10px] text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 px-2 py-0.5 rounded transition-colors shrink-0"
-                  >
-                    Join
-                  </button>
-                </div>
-              </div>
-            ))}
-          </>
-        )}
-
-        {pinnedSessions.length === 0 && groupedSessions.length === 0 && sharedSessions.length === 0 && (
+        {pinnedSessions.length === 0 && groupedSessions.length === 0 && (
           <p className="text-xs text-[var(--text-muted)] text-center py-8">
-            {searchQuery ? 'No matching conversations' : 'No conversations yet'}
+            {searchQuery ? 'No matching QC tests' : 'No QC tests yet'}
           </p>
         )}
 

@@ -3,9 +3,10 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   Play, Square, CheckCircle, XCircle, AlertTriangle, Clock, ChevronDown, ChevronRight,
   RefreshCw, Loader2, Globe, FileText, ShieldCheck, Plus, Trash2, Pencil,
-  Save, X, Image, KeyRound, Eye, EyeOff, Timer,
+  Save, X, Image, KeyRound, Eye, EyeOff, Timer, GripVertical,
 } from 'lucide-react';
 import type { QCTask, QCTestCase, QCTestStep, QCCredential } from '../../../shared/types';
+import { useSettingsStore } from '../../stores/settings-store';
 import { cn } from '../../../shared/utils';
 
 function formatDuration(ms: number): string {
@@ -72,6 +73,11 @@ function EditableStep({
   onDelete,
   onStartEdit,
   onCancel,
+  dragOverStep,
+  onDragStartStep,
+  onDragOverStep,
+  onDropStep,
+  onDragEndStep,
 }: {
   step: QCTestStep;
   editing: boolean;
@@ -81,6 +87,11 @@ function EditableStep({
   onDelete: () => void;
   onStartEdit: () => void;
   onCancel: () => void;
+  dragOverStep?: string | null;
+  onDragStartStep?: (id: string) => void;
+  onDragOverStep?: (id: string | null) => void;
+  onDropStep?: (fromId: string, toId: string) => void;
+  onDragEndStep?: () => void;
 }) {
   const [action, setAction] = useState(step.action);
   const [expected, setExpected] = useState(step.expected);
@@ -129,7 +140,36 @@ function EditableStep({
   }
 
   return (
-    <div className={cn("flex gap-2 text-xs group/step", running && "bg-blue-500/5 rounded-md px-1.5 py-1 -mx-1.5")}>
+    <div
+      className={cn(
+        "flex gap-2 text-xs group/step",
+        running && "bg-blue-500/5 rounded-md px-1.5 py-1 -mx-1.5",
+        dragOverStep === step.id && "border-t-2 border-[var(--accent)]",
+      )}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData('application/x-qc-step', step.id);
+        e.dataTransfer.effectAllowed = 'move';
+        onDragStartStep?.(step.id);
+      }}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes('application/x-qc-step')) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          onDragOverStep?.(step.id);
+        }
+      }}
+      onDragLeave={() => onDragOverStep?.(null)}
+      onDrop={(e) => {
+        e.preventDefault();
+        const fromId = e.dataTransfer.getData('application/x-qc-step');
+        if (fromId && fromId !== step.id) onDropStep?.(fromId, step.id);
+      }}
+      onDragEnd={() => onDragEndStep?.()}
+    >
+      <div className="shrink-0 mt-0.5 cursor-grab active:cursor-grabbing text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
+        <GripVertical className="w-3 h-3" />
+      </div>
       <div className="shrink-0 mt-0.5">
         <StepStatusIcon status={step.status} running={running} executed={executed} />
       </div>
@@ -197,6 +237,11 @@ function TestCaseCard({
   runningStepOrder,
   onUpdate,
   onDelete,
+  dragOverTc,
+  onDragStartTc,
+  onDragOverTc,
+  onDropTc,
+  onDragEndTc,
 }: {
   testCase: QCTestCase;
   sessionId: string;
@@ -204,6 +249,11 @@ function TestCaseCard({
   runningStepOrder?: number;
   onUpdate: (tc: QCTestCase) => void;
   onDelete: () => void;
+  dragOverTc?: string | null;
+  onDragStartTc?: (id: string) => void;
+  onDragOverTc?: (id: string | null) => void;
+  onDropTc?: (fromId: string, toId: string) => void;
+  onDragEndTc?: () => void;
 }) {
   const isRunning = testCase.status === 'running';
   const [expanded, setExpanded] = useState(false);
@@ -213,6 +263,8 @@ function TestCaseCard({
   const [nameText, setNameText] = useState(testCase.name);
   const [descText, setDescText] = useState(testCase.description);
   const [addingStep, setAddingStep] = useState(false);
+  const [dragOverStepId, setDragOverStepId] = useState<string | null>(null);
+  const [, setDraggingStepId] = useState<string | null>(null);
 
   // Auto-expand when running, auto-collapse when finished
   useEffect(() => {
@@ -267,13 +319,60 @@ function TestCaseCard({
     setAddingStep(false);
   };
 
+  const handleStepDrop = (fromId: string, toId: string) => {
+    const fromIdx = testCase.steps.findIndex((s) => s.id === fromId);
+    const toIdx = testCase.steps.findIndex((s) => s.id === toId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const reordered = [...testCase.steps];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    const renumbered = reordered.map((s, i) => ({ ...s, order: i + 1 }));
+    onUpdate({ ...testCase, steps: renumbered });
+    setDragOverStepId(null);
+    setDraggingStepId(null);
+  };
+
   return (
-    <div className="border border-[var(--border)] rounded-lg overflow-hidden">
+    <div
+      className={cn(
+        "border border-[var(--border)] rounded-lg overflow-hidden",
+        dragOverTc === testCase.id && "border-t-2 border-t-[var(--accent)]",
+      )}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes('application/x-qc-testcase')) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          onDragOverTc?.(testCase.id);
+        }
+      }}
+      onDragLeave={(e) => {
+        if (e.dataTransfer.types.includes('application/x-qc-testcase') && !e.currentTarget.contains(e.relatedTarget as Node)) {
+          onDragOverTc?.(null);
+        }
+      }}
+      onDrop={(e) => {
+        if (e.dataTransfer.types.includes('application/x-qc-testcase')) {
+          e.preventDefault();
+          const fromId = e.dataTransfer.getData('application/x-qc-testcase');
+          if (fromId && fromId !== testCase.id) onDropTc?.(fromId, testCase.id);
+        }
+      }}
+    >
       {/* Header */}
       <div
         className="flex items-center gap-2 px-3 py-2 bg-[var(--bg-secondary)] cursor-pointer hover:bg-[var(--bg-tertiary)] transition-colors group/card"
         onClick={() => setExpanded(!expanded)}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData('application/x-qc-testcase', testCase.id);
+          e.dataTransfer.effectAllowed = 'move';
+          onDragStartTc?.(testCase.id);
+        }}
+        onDragEnd={() => onDragEndTc?.()}
       >
+        <div className="shrink-0 cursor-grab active:cursor-grabbing text-[var(--text-muted)] hover:text-[var(--text-secondary)]" title="Drag to reorder">
+          <GripVertical className="w-3.5 h-3.5" />
+        </div>
         {expanded ? <ChevronDown className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : <ChevronRight className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
         <TestCaseStatusIcon status={testCase.status} />
         <span className="text-sm text-[var(--text-primary)] flex-1 truncate">{testCase.name}</span>
@@ -373,6 +472,11 @@ function TestCaseCard({
                 onDelete={() => handleDeleteStep(step.id)}
                 onStartEdit={() => setEditingStepId(step.id)}
                 onCancel={() => setEditingStepId(null)}
+                dragOverStep={dragOverStepId}
+                onDragStartStep={setDraggingStepId}
+                onDragOverStep={setDragOverStepId}
+                onDropStep={handleStepDrop}
+                onDragEndStep={() => { setDragOverStepId(null); setDraggingStepId(null); }}
               />
             ))}
           </div>
@@ -444,7 +548,7 @@ function CredentialsSection({
         <button
           onClick={(e) => { e.stopPropagation(); handleAdd(); }}
           className="ml-auto w-5 h-5 rounded flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors"
-          title="Add credential"
+          title="Add credential field"
         >
           <Plus className="w-3 h-3" />
         </button>
@@ -608,16 +712,30 @@ function NewTestCaseForm({
 // ─── Main Panel ──────────────────────────────────────────────────
 
 export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask, onRenameSession }: QCTestPanelProps) {
+  const qcSettingsUrl = useSettingsStore((s) => s.settings.qcTestingUrl) || '';
+  const qcSettingsCredentials = useSettingsStore((s) => s.settings.qcTestingCredentials) || [];
   const [showCreateForm, setShowCreateForm] = useState(!qcTask);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [targetUrl, setTargetUrl] = useState('');
+  const [targetUrl, setTargetUrl] = useState(qcSettingsUrl);
   const [generating, setGenerating] = useState(false);
+
+  // Reset form when switching to a new session
+  useEffect(() => {
+    setShowCreateForm(!qcTask);
+    setTitle('');
+    setDescription('');
+    setTargetUrl(qcSettingsUrl);
+    setGenerating(false);
+    setError(null);
+  }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [runningAll, setRunningAll] = useState(
     () => qcTask?.status === 'running' || (qcTask?.testCases.some(tc => tc.status === 'running') ?? false),
   );
   const [error, setError] = useState<string | null>(null);
   const [addingTestCase, setAddingTestCase] = useState(false);
+  const [dragOverTcId, setDragOverTcId] = useState<string | null>(null);
+  const [, setDraggingTcId] = useState<string | null>(null);
   const [editingTask, setEditingTask] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
@@ -716,7 +834,12 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask,
     try {
       const result = await window.electronAPI.qcGenerateTests(sessionId, genTitle, genDesc, genUrl, model);
       if (result.success) {
-        await onTaskUpdate(result.data);
+        const task = result.data;
+        // Pre-fill credentials from settings if task has none and settings has them
+        if ((!task.credentials || task.credentials.length === 0) && qcSettingsCredentials.length > 0) {
+          task.credentials = [...qcSettingsCredentials];
+        }
+        await onTaskUpdate(task);
         setShowCreateForm(false);
         // Update session title AFTER onTaskUpdate has persisted qcTask to disk
         // to avoid concurrent file writes that can corrupt the session JSON.
@@ -729,7 +852,7 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask,
     } finally {
       setGenerating(false);
     }
-  }, [sessionId, qcTask, title, description, targetUrl, model, onTaskUpdate]);
+  }, [sessionId, qcTask, title, description, targetUrl, model, onTaskUpdate, qcSettingsCredentials]);
 
   const handleRunAll = useCallback(async () => {
     setRunningAll(true);
@@ -780,6 +903,19 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask,
       updatedAt: new Date().toISOString(),
     });
     setAddingTestCase(false);
+  }, [qcTask, onTaskUpdate]);
+
+  const handleTestCaseDrop = useCallback((fromId: string, toId: string) => {
+    if (!qcTask) return;
+    const fromIdx = qcTask.testCases.findIndex((tc) => tc.id === fromId);
+    const toIdx = qcTask.testCases.findIndex((tc) => tc.id === toId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const reordered = [...qcTask.testCases];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    onTaskUpdate({ ...qcTask, testCases: reordered, updatedAt: new Date().toISOString() });
+    setDragOverTcId(null);
+    setDraggingTcId(null);
   }, [qcTask, onTaskUpdate]);
 
   // Summary stats
@@ -849,7 +985,7 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask,
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Describe the feature to test..."
                 rows={3}
-                className="w-full text-sm bg-[var(--bg-primary)] text-[var(--text-primary)] border border-[var(--border)] rounded-md px-3 py-1.5 outline-none focus:border-[var(--accent)] resize-none"
+                className="w-full min-h-[4.5rem] text-sm bg-[var(--bg-primary)] text-[var(--text-primary)] border border-[var(--border)] rounded-md px-3 py-1.5 outline-none focus:border-[var(--accent)] resize"
               />
             </div>
             <div>
@@ -863,7 +999,16 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask,
                   className="w-full text-sm bg-[var(--bg-primary)] text-[var(--text-primary)] border border-[var(--border)] rounded-md pl-8 pr-3 py-1.5 outline-none focus:border-[var(--accent)]"
                 />
               </div>
+              {qcSettingsUrl && targetUrl === qcSettingsUrl && (
+                <p className="text-[10px] text-emerald-400 mt-0.5">Using URL from Settings</p>
+              )}
             </div>
+            {qcSettingsCredentials.length > 0 && (
+              <p className="text-[10px] text-[var(--text-muted)]">
+                <KeyRound className="w-3 h-3 inline-block mr-0.5 text-amber-400" />
+                {qcSettingsCredentials.length} login credential{qcSettingsCredentials.length !== 1 ? 's' : ''} will be applied from Settings.
+              </p>
+            )}
             <button
               onClick={handleGenerate}
               disabled={generating || !title.trim() || !targetUrl.trim()}
@@ -902,7 +1047,7 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask,
                     onChange={(e) => setEditDescription(e.target.value)}
                     placeholder="Description..."
                     rows={3}
-                    className="w-full text-xs bg-[var(--bg-primary)] text-[var(--text-primary)] border border-[var(--border)] rounded px-2.5 py-1.5 outline-none focus:border-[var(--accent)] resize-none"
+                    className="w-full min-h-[4.5rem] text-xs bg-[var(--bg-primary)] text-[var(--text-primary)] border border-[var(--border)] rounded px-2.5 py-1.5 outline-none focus:border-[var(--accent)] resize"
                   />
                   <div className="relative">
                     <Globe className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
@@ -949,7 +1094,7 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask,
                     </div>
                   </div>
                   {qcTask.description && (
-                    <p className="text-xs text-[var(--text-muted)] mb-1">{qcTask.description}</p>
+                    <p className="text-xs text-[var(--text-muted)] mb-1 whitespace-pre-wrap break-words">{qcTask.description}</p>
                   )}
                   <div className="flex items-center gap-2 text-[10px] text-[var(--text-muted)]">
                     <Globe className="w-3 h-3" />
@@ -1018,6 +1163,11 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask,
                   runningStepOrder={runningSteps[tc.id]}
                   onUpdate={handleTestCaseUpdate}
                   onDelete={() => handleDeleteTestCase(tc.id)}
+                  dragOverTc={dragOverTcId}
+                  onDragStartTc={setDraggingTcId}
+                  onDragOverTc={setDragOverTcId}
+                  onDropTc={handleTestCaseDrop}
+                  onDragEndTc={() => { setDragOverTcId(null); setDraggingTcId(null); }}
                 />
               ))}
             </div>

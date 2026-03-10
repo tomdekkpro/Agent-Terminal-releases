@@ -32,6 +32,8 @@ export interface Terminal {
   worktreeBranch?: string;
   timeTracking?: TimeTracking;
   pendingTaskPrompt?: string;
+  /** True when restored from saved state but PTY not yet created */
+  needsRestore?: boolean;
 }
 
 // Output callback registry
@@ -58,7 +60,7 @@ export function unregisterOutputCallback(terminalId: string): void {
 // Build saveable state snapshot
 function buildSaveableState(state: TerminalState) {
   const saveable = state.terminals
-    .filter((t) => t.status !== 'exited')
+    .filter((t) => t.status !== 'exited' || t.needsRestore)
     .map((t) => ({
       id: t.id,
       groupId: t.groupId,
@@ -134,7 +136,12 @@ interface TerminalState {
   stopTimer: (id: string) => TimeTracking | null;
   writeToTerminal: (terminalId: string, data: string) => void;
   restoreState: () => Promise<Terminal[]>;
+  /** Create PTY and resume agent for a single restored terminal */
+  activateTerminal: (id: string) => Promise<void>;
+  /** Discard a restored terminal without creating PTY */
+  discardTerminal: (id: string) => void;
 }
+
 
 export const useTerminalStore = create<TerminalState>((set, get) => ({
   terminals: [],
@@ -471,7 +478,8 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         id: t.id,
         groupId: t.groupId,
         title: t.title,
-        status: (t.isClaudeMode ? 'claude-active' : 'idle') as TerminalStatus,
+        // Mark as exited until user chooses to restore
+        status: 'exited' as TerminalStatus,
         cwd: t.cwd || '',
         createdAt: new Date(),
         isClaudeMode: t.isClaudeMode || false,
@@ -486,6 +494,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         worktreePath: t.worktreePath,
         worktreeBranch: t.worktreeBranch,
         timeTracking: t.timeTracking,
+        needsRestore: true,
       }));
 
       set({
@@ -500,6 +509,68 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       set({ isRestored: true });
       return [];
     }
+  },
+
+  activateTerminal: async (id: string) => {
+    const terminal = get().terminals.find((t) => t.id === id);
+    if (!terminal || !terminal.needsRestore) return;
+
+    try {
+      await window.electronAPI.createTerminal({
+        id: terminal.id,
+        cwd: terminal.cwd || '',
+        cols: 80,
+        rows: 24,
+      });
+
+      // Mark as active before resuming agent
+      set((state) => ({
+        terminals: state.terminals.map((t) =>
+          t.id === id ? { ...t, needsRestore: false, status: terminal.isClaudeMode ? 'claude-active' as TerminalStatus : 'idle' as TerminalStatus } : t
+        ),
+      }));
+
+      if (terminal.isClaudeMode) {
+        const agentId = terminal.agentProvider || 'claude';
+        const resumeCwd = terminal.claudeCwd || terminal.cwd;
+
+        if (agentId === 'claude') {
+          await window.electronAPI.resumeAgent(terminal.id, 'claude', {
+            sessionId: terminal.claudeSessionId,
+            cwd: resumeCwd,
+            skipPermissions: terminal.skipPermissions,
+          });
+        } else {
+          await window.electronAPI.resumeAgent(terminal.id, agentId, {
+            cwd: terminal.cwd,
+            skipPermissions: terminal.skipPermissions,
+          });
+        }
+      }
+    } catch {
+      set((state) => ({
+        terminals: state.terminals.map((t) =>
+          t.id === id ? { ...t, needsRestore: false, status: 'exited' as TerminalStatus } : t
+        ),
+      }));
+    }
+  },
+
+  discardTerminal: (id: string) => {
+    xtermCallbacks.delete(id);
+    set((state) => {
+      const newTerminals = state.terminals.filter((t) => t.id !== id);
+      let newActiveId = state.activeTerminalId;
+      let newActiveGroupId = state.activeGroupId;
+
+      if (state.activeTerminalId === id) {
+        const last = newTerminals[newTerminals.length - 1];
+        newActiveId = last?.id || null;
+        newActiveGroupId = last?.groupId || null;
+      }
+
+      return { terminals: newTerminals, activeTerminalId: newActiveId, activeGroupId: newActiveGroupId };
+    });
   },
 }));
 

@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Settings, Terminal, CheckSquare, Bot, Palette, Save, RotateCcw, Loader2, CheckCircle, XCircle, Info, RefreshCw, Download, Users } from 'lucide-react';
+import { Settings, Terminal, CheckSquare, Bot, Palette, Save, RotateCcw, Loader2, CheckCircle, XCircle, Info, RefreshCw, Download, Users, ShieldCheck, Plus, Trash2, Eye, EyeOff } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settings-store';
-import type { AppSettings, AgentProviderMeta } from '../../../shared/types';
+import type { AppSettings, AgentProviderMeta, QCCredential } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
 import { APP_VERSION } from '../../lib/version';
 
-type SettingsSection = 'general' | 'terminal' | 'tasks' | 'agent' | 'team' | 'appearance';
+type SettingsSection = 'general' | 'terminal' | 'tasks' | 'testing' | 'agent' | 'team' | 'appearance';
 
 const sections: { id: SettingsSection; icon: typeof Terminal; label: string; description: string }[] = [
   { id: 'general', icon: Info, label: 'General', description: 'Version and update settings' },
   { id: 'terminal', icon: Terminal, label: 'Terminal', description: 'Font, cursor, and display settings' },
   { id: 'tasks', icon: CheckSquare, label: 'Tasks', description: 'Task manager integration' },
+  { id: 'testing', icon: ShieldCheck, label: 'Testing', description: 'QC Testing default URL and credentials' },
   { id: 'agent', icon: Bot, label: 'Agent', description: 'AI agent provider configuration' },
   { id: 'team', icon: Users, label: 'Team', description: 'Real-time team chat settings' },
   { id: 'appearance', icon: Palette, label: 'Appearance', description: 'Theme and display options' },
@@ -28,6 +29,7 @@ export function SettingsView() {
   const [updateInfo, setUpdateInfo] = useState<{ version?: string; percent?: number; error?: string }>({});
 
   const [agentProviders, setAgentProviders] = useState<AgentProviderMeta[]>([]);
+  const [visibleCredValues, setVisibleCredValues] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     loadSettings();
@@ -604,6 +606,111 @@ export function SettingsView() {
                     )}
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {activeSection === 'testing' && (
+            <div className="space-y-6 max-w-xl">
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">QC Testing</h2>
+              <p className="text-sm text-[var(--text-muted)]">
+                Configure default URL and login credentials for QC Testing. These will be pre-filled when creating a new QC test.
+              </p>
+
+              <div className="space-y-4">
+                {/* Default Target URL */}
+                <div>
+                  <label className="block text-sm text-[var(--text-secondary)] mb-1.5">Default Target URL</label>
+                  <input
+                    type="url"
+                    value={localSettings.qcTestingUrl || ''}
+                    onChange={(e) => handleChange('qcTestingUrl', e.target.value)}
+                    placeholder="https://your-app.example.com"
+                    className="w-full px-3 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
+                  />
+                  <p className="text-[11px] text-[var(--text-muted)] mt-1">The URL that QC tests will navigate to by default.</p>
+                </div>
+
+                {/* Default Login Credentials */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-sm text-[var(--text-secondary)]">Default Login Credentials</label>
+                    <button
+                      onClick={() => {
+                        const creds = [...(localSettings.qcTestingCredentials || []), { label: '', value: '' }];
+                        handleChange('qcTestingCredentials', creds);
+                      }}
+                      className="flex items-center gap-1 text-xs text-[var(--accent)] hover:text-[var(--accent-hover)] transition-colors"
+                    >
+                      <Plus className="w-3 h-3" /> Add Field
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-[var(--text-muted)] mb-2">These credentials will be pre-filled when creating a new QC test session.</p>
+
+                  {(!localSettings.qcTestingCredentials || localSettings.qcTestingCredentials.length === 0) ? (
+                    <div className="p-4 border border-dashed border-[var(--border)] rounded-lg text-center">
+                      <p className="text-xs text-[var(--text-muted)]">No credentials configured.</p>
+                      <button
+                        onClick={() => {
+                          handleChange('qcTestingCredentials', [
+                            { label: 'Email', value: '' },
+                            { label: 'Password', value: '' },
+                          ]);
+                        }}
+                        className="text-xs text-[var(--accent)] hover:underline mt-1"
+                      >
+                        Add Email & Password template
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {localSettings.qcTestingCredentials.map((cred: QCCredential, i: number) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <input
+                            value={cred.label}
+                            onChange={(e) => {
+                              const updated = localSettings.qcTestingCredentials.map((c: QCCredential, idx: number) =>
+                                idx === i ? { ...c, label: e.target.value } : c
+                              );
+                              handleChange('qcTestingCredentials', updated);
+                            }}
+                            placeholder="Label (e.g. Email)"
+                            className="w-28 px-2 py-1.5 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
+                          />
+                          <div className="flex-1 relative">
+                            <input
+                              type={visibleCredValues[i] ? 'text' : 'password'}
+                              value={cred.value}
+                              onChange={(e) => {
+                                const updated = localSettings.qcTestingCredentials.map((c: QCCredential, idx: number) =>
+                                  idx === i ? { ...c, value: e.target.value } : c
+                                );
+                                handleChange('qcTestingCredentials', updated);
+                              }}
+                              placeholder="Value"
+                              className="w-full px-2 py-1.5 pr-8 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]"
+                            />
+                            <button
+                              onClick={() => setVisibleCredValues(prev => ({ ...prev, [i]: !prev[i] }))}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                            >
+                              {visibleCredValues[i] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                            </button>
+                          </div>
+                          <button
+                            onClick={() => {
+                              const updated = localSettings.qcTestingCredentials.filter((_: QCCredential, idx: number) => idx !== i);
+                              handleChange('qcTestingCredentials', updated);
+                            }}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--error)] hover:bg-[var(--error)]/10 transition-colors shrink-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}

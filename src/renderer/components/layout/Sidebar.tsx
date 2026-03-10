@@ -1,4 +1,4 @@
-import { Terminal, CheckSquare, Sparkles, Settings } from 'lucide-react';
+import { Terminal, LayoutList, ShieldCheck, Sparkles, Settings } from 'lucide-react';
 import type { ViewType } from '../../App';
 import { cn } from '../../../shared/utils';
 import { APP_VERSION } from '../../lib/version';
@@ -10,8 +10,9 @@ interface SidebarProps {
 
 const navItems: { id: ViewType; icon: typeof Terminal; label: string; shortcut: string }[] = [
   { id: 'terminals', icon: Terminal, label: 'Terminals', shortcut: 'Ctrl+T' },
-  { id: 'tasks', icon: CheckSquare, label: 'Tasks', shortcut: 'Ctrl+K' },
-  { id: 'insights', icon: Sparkles, label: 'Insights', shortcut: 'Ctrl+I' },
+  { id: 'tasks', icon: LayoutList, label: 'Sessions', shortcut: 'Ctrl+K' },
+  { id: 'qc', icon: ShieldCheck, label: 'QC Testing', shortcut: 'Ctrl+Q' },
+  { id: 'insights', icon: Sparkles, label: 'Chat', shortcut: 'Ctrl+I' },
   { id: 'settings', icon: Settings, label: 'Settings', shortcut: 'Ctrl+S' },
 ];
 

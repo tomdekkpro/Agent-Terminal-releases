@@ -142,6 +142,9 @@ export interface AppSettings {
   defaultAgentProvider: AgentProviderId;
   agentModels: Partial<Record<AgentProviderId, string>>;
   agentConfig: Partial<Record<AgentProviderId, Record<string, string>>>;
+  // QC Testing
+  qcTestingUrl: string;
+  qcTestingCredentials: QCCredential[];
   /** @deprecated Use defaultAgentProvider */
   defaultCopilotProvider?: AgentProviderId;
   /** @deprecated Use agentModels.copilot */
@@ -492,4 +495,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
     aider: '',
   },
   agentConfig: {},
+  qcTestingUrl: '',
+  qcTestingCredentials: [],
 };

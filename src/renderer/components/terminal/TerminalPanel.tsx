@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Bot, X, ExternalLink, GitBranch, GitMerge, Play, Square, Clock, Smartphone, Copy, Check, Eraser, ChevronDown, ImagePlus, FileImage, File as FileIcon, Link, GripVertical } from 'lucide-react';
+import { Bot, X, ExternalLink, GitBranch, GitMerge, Play, Square, Clock, Smartphone, Copy, Check, Eraser, ChevronDown, ImagePlus, FileImage, File as FileIcon, Link, GripVertical, RotateCcw, Trash2, Terminal as TerminalIcon, FolderOpen } from 'lucide-react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -943,8 +943,93 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, ski
         </div>
       )}
 
-      {/* Terminal container */}
-      <div ref={containerRef} className="flex-1 bg-[#0f0f23] p-1" />
+      {/* Terminal container or restore banner */}
+      {terminal.needsRestore ? (
+        <RestoreBanner terminal={terminal} />
+      ) : (
+        <div ref={containerRef} className="flex-1 bg-[#0f0f23] p-1" />
+      )}
+    </div>
+  );
+}
+
+// ─── Restore Banner ────────────────────────────────────────────
+
+function RestoreBanner({ terminal }: { terminal: Terminal }) {
+  const activateTerminal = useTerminalStore((s) => s.activateTerminal);
+  const discardTerminal = useTerminalStore((s) => s.discardTerminal);
+  const [restoring, setRestoring] = useState(false);
+
+  const handleRestore = async () => {
+    setRestoring(true);
+    await activateTerminal(terminal.id);
+  };
+
+  return (
+    <div className="flex-1 bg-[#0f0f23] flex items-center justify-center">
+      <div className="max-w-sm w-full mx-4 text-center space-y-4">
+        {/* Icon */}
+        <div className="flex justify-center">
+          <div className="w-14 h-14 rounded-2xl bg-[var(--accent)]/10 flex items-center justify-center">
+            {terminal.isClaudeMode ? (
+              <Bot className="w-7 h-7 text-emerald-400" />
+            ) : (
+              <TerminalIcon className="w-7 h-7 text-blue-400" />
+            )}
+          </div>
+        </div>
+
+        {/* Info */}
+        <div>
+          <h3 className="text-sm font-medium text-[var(--text-primary)] mb-1">
+            {terminal.title}
+          </h3>
+          {terminal.cwd && (
+            <p className="text-[11px] text-[var(--text-muted)] flex items-center justify-center gap-1 font-mono">
+              <FolderOpen className="w-3 h-3" />
+              {terminal.cwd}
+            </p>
+          )}
+          {terminal.isClaudeMode && (
+            <p className="text-[11px] text-emerald-400/70 mt-1">
+              Agent: {terminal.agentProvider}
+              {terminal.claudeSessionId && ' • Session available'}
+            </p>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={() => discardTerminal(terminal.id)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--border)] text-sm text-[var(--text-muted)] hover:text-red-400 hover:border-red-400/30 transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Discard
+          </button>
+          <button
+            onClick={handleRestore}
+            disabled={restoring}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--accent)] text-white text-sm font-medium hover:bg-[var(--accent-hover)] transition-colors disabled:opacity-60"
+          >
+            {restoring ? (
+              <>
+                <RotateCcw className="w-3.5 h-3.5 animate-spin" />
+                Restoring...
+              </>
+            ) : (
+              <>
+                <RotateCcw className="w-3.5 h-3.5" />
+                Restore
+              </>
+            )}
+          </button>
+        </div>
+
+        <p className="text-[10px] text-[var(--text-muted)] opacity-60">
+          Previous session from last run
+        </p>
+      </div>
     </div>
   );
 }
