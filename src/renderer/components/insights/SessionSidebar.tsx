@@ -166,8 +166,18 @@ export function SessionSidebar({
               }}
             >
               <div className="flex items-center gap-1.5">
-                {s.mode === 'qc' && <ShieldCheck className="w-3 h-3 text-amber-400 shrink-0" />}
-                <p className="text-sm text-[var(--text-primary)] truncate">{s.title}</p>
+                {s.mode === 'qc' && (
+                  <ShieldCheck className={cn('w-3 h-3 shrink-0',
+                    s.qcStatus === 'completed' && (s.qcFailed ?? 0) > 0 ? 'text-red-400'
+                    : s.qcStatus === 'completed' && s.qcFailed === 0 ? 'text-emerald-400'
+                    : 'text-amber-400',
+                  )} />
+                )}
+                <p className={cn('text-sm truncate',
+                  s.mode === 'qc' && s.qcStatus === 'completed' && (s.qcFailed ?? 0) > 0
+                    ? 'text-red-400'
+                    : 'text-[var(--text-primary)]',
+                )}>{s.title}</p>
                 {s.mode === 'qc' && s.qcStatus === 'running' && (
                   <Loader2 className="w-3 h-3 text-blue-400 animate-spin shrink-0" />
                 )}

@@ -38,7 +38,7 @@ function killProcessTree(child: ChildProcess): void {
 const activeProcesses = new Map<string, ChildProcess>();
 
 export interface QCEvent {
-  type: 'generating' | 'test-start' | 'step-update' | 'test-done' | 'screenshot' | 'all-done' | 'error' | 'log';
+  type: 'generating' | 'test-start' | 'step-update' | 'test-done' | 'screenshot' | 'all-done' | 'error';
   sessionId: string;
   taskId: string;
   testCaseId?: string;
@@ -361,17 +361,6 @@ IMPORTANT: Actually use the browser tools to navigate and interact with the page
       return match ? match[0] : undefined;
     };
 
-    // Helper to send log events to the renderer
-    const sendLog = (message: string): void => {
-      sendQCEvent(getWindow, {
-        type: 'log',
-        sessionId,
-        taskId,
-        testCaseId: testCase.id,
-        message,
-      });
-    };
-
     child.stdout?.on('data', (chunk: Buffer) => {
       buffer += chunk.toString();
       const lines = buffer.split('\n');
@@ -384,30 +373,23 @@ IMPORTANT: Actually use the browser tools to navigate and interact with the page
           if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
             fullText += parsed.delta.text;
             recentText += parsed.delta.text;
-            sendLog(parsed.delta.text);
             detectStep();
           }
           if (parsed.type === 'result' && parsed.result) {
             const text = typeof parsed.result === 'string'
               ? parsed.result
               : parsed.result.content?.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('') || '';
-            if (text) {
-              fullText += text;
-              sendLog(text);
-            }
+            if (text) fullText += text;
           }
           if (parsed.type === 'assistant' && parsed.content) {
             const text = parsed.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
             fullText += text;
             recentText += text;
-            sendLog(text);
             detectStep();
           }
           // Detect tool_use events - browser interactions
           if (parsed.type === 'tool_use') {
             const toolName: string = parsed.name || '';
-            const inputStr = parsed.input ? JSON.stringify(parsed.input, null, 2) : '';
-            sendLog(`\n🔧 Tool: ${toolName}\n${inputStr}`);
             if (toolName.includes('screenshot')) {
               sendQCEvent(getWindow, {
                 type: 'screenshot',
@@ -439,7 +421,6 @@ IMPORTANT: Actually use the browser tools to navigate and interact with the page
           if (parsed.type === 'tool_result') {
             const resultText = typeof parsed.output === 'string' ? parsed.output
               : Array.isArray(parsed.content) ? parsed.content.map((b: any) => b.text || '').join('') : '';
-            sendLog(`\n📋 Tool Result:\n${resultText.slice(0, 500)}${resultText.length > 500 ? '...' : ''}`);
             const screenshotPath = extractScreenshotPath(resultText);
             if (screenshotPath && currentStepOrder > 0) {
               screenshotPaths.set(currentStepOrder, screenshotPath);

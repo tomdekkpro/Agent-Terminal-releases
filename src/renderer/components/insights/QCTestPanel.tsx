@@ -195,7 +195,6 @@ function TestCaseCard({
   sessionId,
   model,
   runningStepOrder,
-  logContent,
   onUpdate,
   onDelete,
 }: {
@@ -203,7 +202,6 @@ function TestCaseCard({
   sessionId: string;
   model: string;
   runningStepOrder?: number;
-  logContent?: string;
   onUpdate: (tc: QCTestCase) => void;
   onDelete: () => void;
 }) {
@@ -215,20 +213,15 @@ function TestCaseCard({
   const [nameText, setNameText] = useState(testCase.name);
   const [descText, setDescText] = useState(testCase.description);
   const [addingStep, setAddingStep] = useState(false);
-  const [showLogs, setShowLogs] = useState(false);
-  const logEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-expand when test case starts running
+  // Auto-expand when running, auto-collapse when finished
   useEffect(() => {
-    if (isRunning) setExpanded(true);
-  }, [isRunning]);
-
-  // Auto-scroll log view to bottom
-  useEffect(() => {
-    if (showLogs && logEndRef.current) {
-      logEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (isRunning) {
+      setExpanded(true);
+    } else if (testCase.status === 'passed' || testCase.status === 'failed' || testCase.status === 'error') {
+      setExpanded(false);
     }
-  }, [logContent, showLogs]);
+  }, [isRunning, testCase.status]);
 
   const handleRunSingle = async () => {
     setRunning(true);
@@ -400,27 +393,6 @@ function TestCaseCard({
             </button>
           )}
 
-          {/* Log viewer */}
-          {logContent && (
-            <div className="border-t border-[var(--border)] pt-2 mt-2">
-              <button
-                onClick={() => setShowLogs(!showLogs)}
-                className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-              >
-                {showLogs ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                <FileText className="w-3 h-3" />
-                Logs
-              </button>
-              {showLogs && (
-                <div className="mt-1.5 max-h-60 overflow-y-auto rounded bg-[var(--bg-primary)] border border-[var(--border)] p-2">
-                  <pre className="text-[10px] leading-relaxed text-[var(--text-muted)] whitespace-pre-wrap break-words font-mono">
-                    {logContent}
-                    <div ref={logEndRef} />
-                  </pre>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -652,9 +624,6 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask,
   const [editUrl, setEditUrl] = useState('');
   // Track which step is currently running per test case: { [testCaseId]: stepOrder }
   const [runningSteps, setRunningSteps] = useState<Record<string, number>>({});
-  // Accumulate logs per test case: { [testCaseId]: string }
-  const [testLogs, setTestLogs] = useState<Record<string, string>>({});
-
   // Ref to always access the latest qcTask inside event listeners (avoids stale closures).
   // IMPORTANT: Only sync from the prop via useEffect (not on every render) so that
   // manual ref updates from event handlers are not overwritten by intermediate re-renders
@@ -699,18 +668,8 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask,
         }
       }
 
-      // Accumulate log output per test case
-      if (event.type === 'log' && event.testCaseId && event.message) {
-        setTestLogs(prev => ({
-          ...prev,
-          [event.testCaseId!]: (prev[event.testCaseId!] || '') + event.message,
-        }));
-      }
-
       if (event.type === 'test-start' && event.testCaseId && task) {
         setRunningSteps(prev => ({ ...prev, [event.testCaseId!]: 0 }));
-        // Clear logs for this test case on fresh start
-        setTestLogs(prev => ({ ...prev, [event.testCaseId!]: '' }));
         const updatedTask = {
           ...task,
           status: 'running' as const,
@@ -1057,7 +1016,6 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask,
                   sessionId={sessionId}
                   model={model}
                   runningStepOrder={runningSteps[tc.id]}
-                  logContent={testLogs[tc.id]}
                   onUpdate={handleTestCaseUpdate}
                   onDelete={() => handleDeleteTestCase(tc.id)}
                 />
