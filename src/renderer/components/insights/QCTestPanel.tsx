@@ -3,10 +3,21 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   Play, Square, CheckCircle, XCircle, AlertTriangle, Clock, ChevronDown, ChevronRight,
   RefreshCw, Loader2, Globe, FileText, ShieldCheck, Plus, Trash2, Pencil,
-  Save, X, Image, KeyRound, Eye, EyeOff,
+  Save, X, Image, KeyRound, Eye, EyeOff, Timer,
 } from 'lucide-react';
 import type { QCTask, QCTestCase, QCTestStep, QCCredential } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
+
+function formatDuration(ms: number): string {
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const remSecs = secs % 60;
+  if (mins < 60) return `${mins}m ${remSecs}s`;
+  const hours = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return `${hours}h ${remMins}m`;
+}
 
 interface QCTestPanelProps {
   sessionId: string;
@@ -264,7 +275,15 @@ function TestCaseCard({
             Step {runningStepOrder}/{testCase.steps.length}
           </span>
         ) : (
-          <span className="text-[10px] text-[var(--text-muted)]">{testCase.steps.length} steps</span>
+          <span className="flex items-center gap-1.5">
+            <span className="text-[10px] text-[var(--text-muted)]">{testCase.steps.length} steps</span>
+            {testCase.durationMs != null && (
+              <span className="text-[10px] text-[var(--text-muted)] flex items-center gap-0.5">
+                <Timer className="w-2.5 h-2.5" />
+                {formatDuration(testCase.durationMs)}
+              </span>
+            )}
+          </span>
         )}
         <div className="flex items-center gap-1 opacity-0 group-hover/card:opacity-100 transition-opacity">
           <button
@@ -774,6 +793,9 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask,
               {failed > 0 && <span className="flex items-center gap-0.5 text-red-400"><XCircle className="w-2.5 h-2.5" />{failed}</span>}
               {errors > 0 && <span className="flex items-center gap-0.5 text-red-400"><AlertTriangle className="w-2.5 h-2.5" />{errors}</span>}
               {pending > 0 && <span className="flex items-center gap-0.5 text-[var(--text-muted)]"><Clock className="w-2.5 h-2.5" />{pending}</span>}
+              {qcTask.durationMs != null && (
+                <span className="flex items-center gap-0.5 text-[var(--text-muted)]"><Timer className="w-2.5 h-2.5" />{formatDuration(qcTask.durationMs)}</span>
+              )}
             </div>
           )}
         </div>

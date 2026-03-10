@@ -258,6 +258,7 @@ export interface QCTestCase {
   errorMessage?: string;
   startedAt?: string;
   completedAt?: string;
+  durationMs?: number;
 }
 
 export interface QCCredential {
@@ -275,6 +276,9 @@ export interface QCTask {
   testCases: QCTestCase[];
   status: 'draft' | 'generating' | 'ready' | 'running' | 'completed';
   summary?: string;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -335,6 +339,10 @@ export interface InsightsSessionMeta {
   mode?: 'single' | 'roundtable' | 'qc';
   discussionStatus?: DiscussionStatus;
   qcStatus?: QCTask['status'];
+  qcPassed?: number;
+  qcFailed?: number;
+  qcTotal?: number;
+  qcDurationMs?: number;
   linkedTaskName?: string;
   createdAt: string;
   updatedAt: string;

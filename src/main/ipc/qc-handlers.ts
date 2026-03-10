@@ -51,6 +51,9 @@ export function registerQCHandlers(
         if (!session?.qcTask) return { success: false, error: 'No QC task found' };
 
         session.qcTask.status = 'running';
+        session.qcTask.startedAt = new Date().toISOString();
+        session.qcTask.completedAt = undefined;
+        session.qcTask.durationMs = undefined;
         await saveSession(session);
 
         const updatedTask = await runAllTests(sessionId, session.qcTask, model, getWindow);

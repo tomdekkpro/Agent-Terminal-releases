@@ -230,6 +230,9 @@ export async function runTestCase(
     throw new Error('Claude CLI is required for QC testing');
   }
 
+  const tcStartedAt = new Date().toISOString();
+  testCase.startedAt = tcStartedAt;
+
   sendQCEvent(getWindow, {
     type: 'test-start',
     sessionId,
@@ -458,11 +461,15 @@ IMPORTANT: Actually use the browser tools to navigate and interact with the page
           return { ...step, status: 'skipped' as const };
         });
 
+        const tcCompletedAt = new Date().toISOString();
         const updatedTestCase: QCTestCase = {
           ...testCase,
           steps: updatedSteps,
           status: result.overallStatus === 'passed' ? 'passed' : 'failed',
-          completedAt: new Date().toISOString(),
+          completedAt: tcCompletedAt,
+          durationMs: testCase.startedAt
+            ? new Date(tcCompletedAt).getTime() - new Date(testCase.startedAt).getTime()
+            : undefined,
         };
 
         sendQCEvent(getWindow, {
@@ -478,11 +485,15 @@ IMPORTANT: Actually use the browser tools to navigate and interact with the page
         resolve(updatedTestCase);
       } catch {
         // If JSON parsing fails, try to extract useful info from the text
+        const tcErrCompletedAt = new Date().toISOString();
         const updatedTestCase: QCTestCase = {
           ...testCase,
           status: 'error',
           errorMessage: fullText.slice(0, 500) || stderrOutput.slice(0, 500) || 'Failed to parse test results',
-          completedAt: new Date().toISOString(),
+          completedAt: tcErrCompletedAt,
+          durationMs: testCase.startedAt
+            ? new Date(tcErrCompletedAt).getTime() - new Date(testCase.startedAt).getTime()
+            : undefined,
         };
 
         sendQCEvent(getWindow, {
@@ -531,11 +542,15 @@ export async function runAllTests(
       const result = await runTestCase(sessionId, task.id, tc, task.targetUrl, task.credentials, model, getWindow);
       updatedCases.push(result);
     } catch (err) {
+      const errAt = new Date().toISOString();
       updatedCases.push({
         ...tc,
         status: 'error',
         errorMessage: err instanceof Error ? err.message : 'Unknown error',
-        completedAt: new Date().toISOString(),
+        completedAt: errAt,
+        durationMs: tc.startedAt
+          ? new Date(errAt).getTime() - new Date(tc.startedAt).getTime()
+          : undefined,
       });
     }
   }
@@ -543,6 +558,11 @@ export async function runAllTests(
   const passed = updatedCases.filter((tc) => tc.status === 'passed').length;
   const failed = updatedCases.filter((tc) => tc.status === 'failed').length;
   const errors = updatedCases.filter((tc) => tc.status === 'error').length;
+
+  const completedAt = new Date().toISOString();
+  const durationMs = task.startedAt
+    ? new Date(completedAt).getTime() - new Date(task.startedAt).getTime()
+    : undefined;
 
   const summary = `Test Results: ${passed} passed, ${failed} failed, ${errors} errors out of ${updatedCases.length} total`;
 
@@ -559,6 +579,8 @@ export async function runAllTests(
     testCases: updatedCases,
     status: 'completed',
     summary,
+    completedAt,
+    durationMs,
     updatedAt: new Date().toISOString(),
   };
 }

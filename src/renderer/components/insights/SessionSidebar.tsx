@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, Trash2, MessageSquare, FolderOpen, Sparkles, Search, Pin, X, Users, Globe, ShieldCheck, CheckCircle, Loader2 } from 'lucide-react';
+import { Plus, Trash2, MessageSquare, FolderOpen, Sparkles, Search, Pin, X, Users, Globe, ShieldCheck, CheckCircle, XCircle, Loader2, Timer } from 'lucide-react';
 import type { InsightsSessionMeta, SharedSessionInfo } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
 
@@ -37,6 +37,17 @@ function formatDate(iso: string): string {
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 7) return `${diffDays}d ago`;
   return d.toLocaleDateString();
+}
+
+function formatDuration(ms: number): string {
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const remSecs = secs % 60;
+  if (mins < 60) return `${mins}m${remSecs > 0 ? ` ${remSecs}s` : ''}`;
+  const hours = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return `${hours}h${remMins > 0 ? ` ${remMins}m` : ''}`;
 }
 
 function getDateGroup(iso: string): string {
@@ -157,11 +168,14 @@ export function SessionSidebar({
               <div className="flex items-center gap-1.5">
                 {s.mode === 'qc' && <ShieldCheck className="w-3 h-3 text-amber-400 shrink-0" />}
                 <p className="text-sm text-[var(--text-primary)] truncate">{s.title}</p>
-                {s.mode === 'qc' && s.qcStatus && (
-                  <span className={cn('shrink-0', s.qcStatus === 'running' && 'text-blue-400', s.qcStatus === 'completed' && 'text-emerald-400', (s.qcStatus === 'ready' || s.qcStatus === 'draft') && 'text-[var(--text-muted)]')}>
-                    {s.qcStatus === 'running' && <Loader2 className="w-3 h-3 animate-spin" />}
-                    {s.qcStatus === 'completed' && <CheckCircle className="w-3 h-3" />}
-                  </span>
+                {s.mode === 'qc' && s.qcStatus === 'running' && (
+                  <Loader2 className="w-3 h-3 text-blue-400 animate-spin shrink-0" />
+                )}
+                {s.mode === 'qc' && s.qcStatus === 'completed' && s.qcFailed === 0 && (
+                  <CheckCircle className="w-3 h-3 text-emerald-400 shrink-0" />
+                )}
+                {s.mode === 'qc' && s.qcStatus === 'completed' && (s.qcFailed ?? 0) > 0 && (
+                  <XCircle className="w-3 h-3 text-red-400 shrink-0" />
                 )}
               </div>
               <div className="flex items-center gap-2 mt-0.5">
@@ -171,7 +185,19 @@ export function SessionSidebar({
                     {providerInfo.label}
                   </span>
                 )}
-                {s.mode === 'qc' ? (
+                {s.mode === 'qc' && s.qcStatus === 'completed' && s.qcTotal ? (
+                  <span className="flex items-center gap-1 text-[10px]">
+                    <span className="text-emerald-400">{s.qcPassed ?? 0}P</span>
+                    {(s.qcFailed ?? 0) > 0 && <span className="text-red-400">{s.qcFailed}F</span>}
+                    <span className="text-[var(--text-muted)]">/{s.qcTotal}</span>
+                    {s.qcDurationMs != null && (
+                      <span className="flex items-center gap-0.5 text-[var(--text-muted)]">
+                        <Timer className="w-2.5 h-2.5" />
+                        {formatDuration(s.qcDurationMs)}
+                      </span>
+                    )}
+                  </span>
+                ) : s.mode === 'qc' ? (
                   <span className="flex items-center gap-0.5 text-[10px] text-amber-400">
                     <ShieldCheck className="w-2.5 h-2.5" />
                     QC Test
