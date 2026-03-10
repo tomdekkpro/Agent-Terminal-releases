@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { QCTask, QCTestCase, QCTestStep, QCCredential, InsightsModel } from '../../shared/types';
+import { getSession, saveSession } from '../insights/session-storage';
 import { DEFAULT_PERSONAS } from '../../shared/types';
 import { agentRegistry } from '../ipc/providers/agent-registry';
 import { loadPersonas } from '../insights/persona-storage';
@@ -37,7 +38,7 @@ function killProcessTree(child: ChildProcess): void {
 const activeProcesses = new Map<string, ChildProcess>();
 
 export interface QCEvent {
-  type: 'generating' | 'test-start' | 'step-update' | 'test-done' | 'screenshot' | 'all-done' | 'error';
+  type: 'generating' | 'test-start' | 'step-update' | 'test-done' | 'screenshot' | 'all-done' | 'error' | 'log';
   sessionId: string;
   taskId: string;
   testCaseId?: string;
@@ -360,6 +361,17 @@ IMPORTANT: Actually use the browser tools to navigate and interact with the page
       return match ? match[0] : undefined;
     };
 
+    // Helper to send log events to the renderer
+    const sendLog = (message: string): void => {
+      sendQCEvent(getWindow, {
+        type: 'log',
+        sessionId,
+        taskId,
+        testCaseId: testCase.id,
+        message,
+      });
+    };
+
     child.stdout?.on('data', (chunk: Buffer) => {
       buffer += chunk.toString();
       const lines = buffer.split('\n');
@@ -372,23 +384,30 @@ IMPORTANT: Actually use the browser tools to navigate and interact with the page
           if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
             fullText += parsed.delta.text;
             recentText += parsed.delta.text;
+            sendLog(parsed.delta.text);
             detectStep();
           }
           if (parsed.type === 'result' && parsed.result) {
             const text = typeof parsed.result === 'string'
               ? parsed.result
               : parsed.result.content?.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('') || '';
-            if (text) fullText += text;
+            if (text) {
+              fullText += text;
+              sendLog(text);
+            }
           }
           if (parsed.type === 'assistant' && parsed.content) {
             const text = parsed.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
             fullText += text;
             recentText += text;
+            sendLog(text);
             detectStep();
           }
           // Detect tool_use events - browser interactions
           if (parsed.type === 'tool_use') {
             const toolName: string = parsed.name || '';
+            const inputStr = parsed.input ? JSON.stringify(parsed.input, null, 2) : '';
+            sendLog(`\n🔧 Tool: ${toolName}\n${inputStr}`);
             if (toolName.includes('screenshot')) {
               sendQCEvent(getWindow, {
                 type: 'screenshot',
@@ -420,6 +439,7 @@ IMPORTANT: Actually use the browser tools to navigate and interact with the page
           if (parsed.type === 'tool_result') {
             const resultText = typeof parsed.output === 'string' ? parsed.output
               : Array.isArray(parsed.content) ? parsed.content.map((b: any) => b.text || '').join('') : '';
+            sendLog(`\n📋 Tool Result:\n${resultText.slice(0, 500)}${resultText.length > 500 ? '...' : ''}`);
             const screenshotPath = extractScreenshotPath(resultText);
             if (screenshotPath && currentStepOrder > 0) {
               screenshotPaths.set(currentStepOrder, screenshotPath);
@@ -552,6 +572,24 @@ export async function runAllTests(
           ? new Date(errAt).getTime() - new Date(tc.startedAt).getTime()
           : undefined,
       });
+    }
+
+    // Persist after each test case so results survive app close
+    try {
+      const session = await getSession(sessionId);
+      if (session?.qcTask) {
+        // Merge completed cases with remaining pending ones
+        const completedIds = new Set(updatedCases.map(c => c.id));
+        session.qcTask.testCases = session.qcTask.testCases.map(existing =>
+          completedIds.has(existing.id)
+            ? updatedCases.find(c => c.id === existing.id)!
+            : existing,
+        );
+        session.qcTask.updatedAt = new Date().toISOString();
+        await saveSession(session);
+      }
+    } catch {
+      // Non-fatal — continue running tests
     }
   }
 

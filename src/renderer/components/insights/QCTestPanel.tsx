@@ -28,7 +28,7 @@ interface QCTestPanelProps {
   onRenameSession?: (title: string) => void | Promise<void>;
 }
 
-function StepStatusIcon({ status, running }: { status: QCTestStep['status']; running?: boolean }) {
+function StepStatusIcon({ status, running, executed }: { status: QCTestStep['status']; running?: boolean; executed?: boolean }) {
   if (running) {
     return <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />;
   }
@@ -40,6 +40,8 @@ function StepStatusIcon({ status, running }: { status: QCTestStep['status']; run
     case 'skipped':
       return <AlertTriangle className="w-3.5 h-3.5 text-yellow-400" />;
     default:
+      // Step was executed (before current running step) but final result not yet known
+      if (executed) return <CheckCircle className="w-3.5 h-3.5 text-blue-400/60" />;
       return <Clock className="w-3.5 h-3.5 text-[var(--text-muted)]" />;
   }
 }
@@ -65,6 +67,7 @@ function EditableStep({
   step,
   editing,
   running,
+  executed,
   onSave,
   onDelete,
   onStartEdit,
@@ -73,6 +76,7 @@ function EditableStep({
   step: QCTestStep;
   editing: boolean;
   running?: boolean;
+  executed?: boolean;
   onSave: (step: QCTestStep) => void;
   onDelete: () => void;
   onStartEdit: () => void;
@@ -127,7 +131,7 @@ function EditableStep({
   return (
     <div className={cn("flex gap-2 text-xs group/step", running && "bg-blue-500/5 rounded-md px-1.5 py-1 -mx-1.5")}>
       <div className="shrink-0 mt-0.5">
-        <StepStatusIcon status={step.status} running={running} />
+        <StepStatusIcon status={step.status} running={running} executed={executed} />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-start gap-2">
@@ -191,6 +195,7 @@ function TestCaseCard({
   sessionId,
   model,
   runningStepOrder,
+  logContent,
   onUpdate,
   onDelete,
 }: {
@@ -198,6 +203,7 @@ function TestCaseCard({
   sessionId: string;
   model: string;
   runningStepOrder?: number;
+  logContent?: string;
   onUpdate: (tc: QCTestCase) => void;
   onDelete: () => void;
 }) {
@@ -209,11 +215,20 @@ function TestCaseCard({
   const [nameText, setNameText] = useState(testCase.name);
   const [descText, setDescText] = useState(testCase.description);
   const [addingStep, setAddingStep] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
+  const logEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-expand when test case starts running
   useEffect(() => {
     if (isRunning) setExpanded(true);
   }, [isRunning]);
+
+  // Auto-scroll log view to bottom
+  useEffect(() => {
+    if (showLogs && logEndRef.current) {
+      logEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [logContent, showLogs]);
 
   const handleRunSingle = async () => {
     setRunning(true);
@@ -360,6 +375,7 @@ function TestCaseCard({
                 step={step}
                 editing={editingStepId === step.id}
                 running={isRunning && runningStepOrder === step.order}
+                executed={isRunning && runningStepOrder != null && runningStepOrder > 0 && step.order < runningStepOrder}
                 onSave={handleSaveStep}
                 onDelete={() => handleDeleteStep(step.id)}
                 onStartEdit={() => setEditingStepId(step.id)}
@@ -382,6 +398,28 @@ function TestCaseCard({
             >
               <Plus className="w-3 h-3" /> Add step
             </button>
+          )}
+
+          {/* Log viewer */}
+          {logContent && (
+            <div className="border-t border-[var(--border)] pt-2 mt-2">
+              <button
+                onClick={() => setShowLogs(!showLogs)}
+                className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+              >
+                {showLogs ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                <FileText className="w-3 h-3" />
+                Logs
+              </button>
+              {showLogs && (
+                <div className="mt-1.5 max-h-60 overflow-y-auto rounded bg-[var(--bg-primary)] border border-[var(--border)] p-2">
+                  <pre className="text-[10px] leading-relaxed text-[var(--text-muted)] whitespace-pre-wrap break-words font-mono">
+                    {logContent}
+                    <div ref={logEndRef} />
+                  </pre>
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -614,10 +652,17 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask,
   const [editUrl, setEditUrl] = useState('');
   // Track which step is currently running per test case: { [testCaseId]: stepOrder }
   const [runningSteps, setRunningSteps] = useState<Record<string, number>>({});
+  // Accumulate logs per test case: { [testCaseId]: string }
+  const [testLogs, setTestLogs] = useState<Record<string, string>>({});
 
-  // Ref to always access the latest qcTask inside event listeners (avoids stale closures)
+  // Ref to always access the latest qcTask inside event listeners (avoids stale closures).
+  // IMPORTANT: Only sync from the prop via useEffect (not on every render) so that
+  // manual ref updates from event handlers are not overwritten by intermediate re-renders
+  // (e.g. from setRunningSteps/setTestLogs) before the parent has processed the prop update.
   const qcTaskRef = useRef(qcTask);
-  qcTaskRef.current = qcTask;
+  useEffect(() => {
+    qcTaskRef.current = qcTask;
+  }, [qcTask]);
   const onTaskUpdateRef = useRef(onTaskUpdate);
   onTaskUpdateRef.current = onTaskUpdate;
 
@@ -642,25 +687,39 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask,
         if (task) {
           const tc = task.testCases.find(t => t.id === event.testCaseId);
           if (tc && tc.status !== 'running') {
-            update({
+            const updatedTask = {
               ...task,
               testCases: task.testCases.map(t =>
                 t.id === event.testCaseId ? { ...t, status: 'running' as const } : t,
               ),
-            });
+            };
+            qcTaskRef.current = updatedTask;
+            update(updatedTask);
           }
         }
       }
 
+      // Accumulate log output per test case
+      if (event.type === 'log' && event.testCaseId && event.message) {
+        setTestLogs(prev => ({
+          ...prev,
+          [event.testCaseId!]: (prev[event.testCaseId!] || '') + event.message,
+        }));
+      }
+
       if (event.type === 'test-start' && event.testCaseId && task) {
         setRunningSteps(prev => ({ ...prev, [event.testCaseId!]: 0 }));
-        update({
+        // Clear logs for this test case on fresh start
+        setTestLogs(prev => ({ ...prev, [event.testCaseId!]: '' }));
+        const updatedTask = {
           ...task,
-          status: 'running',
+          status: 'running' as const,
           testCases: task.testCases.map(tc =>
             tc.id === event.testCaseId ? { ...tc, status: 'running' as const } : tc,
           ),
-        });
+        };
+        qcTaskRef.current = updatedTask;
+        update(updatedTask);
       }
 
       if (event.type === 'test-done' && event.testCase && task) {
@@ -669,12 +728,14 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask,
           delete next[event.testCaseId!];
           return next;
         });
-        update({
+        const updatedTask = {
           ...task,
           testCases: task.testCases.map((tc: QCTestCase) =>
             tc.id === event.testCaseId ? event.testCase! : tc,
           ),
-        });
+        };
+        qcTaskRef.current = updatedTask;
+        update(updatedTask);
       }
 
       if (event.type === 'all-done' && event.summary) {
@@ -996,6 +1057,7 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask,
                   sessionId={sessionId}
                   model={model}
                   runningStepOrder={runningSteps[tc.id]}
+                  logContent={testLogs[tc.id]}
                   onUpdate={handleTestCaseUpdate}
                   onDelete={() => handleDeleteTestCase(tc.id)}
                 />
