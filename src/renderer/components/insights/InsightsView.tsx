@@ -514,8 +514,9 @@ export function InsightsView() {
     const result = await window.electronAPI.insightsUpdateSession(activeSession.id, { qcTask: task });
     if (result.success && result.data) {
       useInsightsStore.setState({ activeSession: result.data });
+      await loadSessions();
     }
-  }, [activeSession]);
+  }, [activeSession, loadSessions]);
 
   // Find last assistant message index
   let lastAssistantIdx = -1;
