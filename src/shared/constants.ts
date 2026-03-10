@@ -116,4 +116,5 @@ export const IPC_CHANNELS = {
   QC_EVENT: 'qc:event',
   // App
   OPEN_EXTERNAL: 'app:open-external',
+  OPEN_PATH: 'app:open-path',
 } as const;

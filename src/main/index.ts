@@ -120,6 +120,11 @@ app.whenReady().then(() => {
     await shell.openExternal(url);
   });
 
+  // Open local file paths (e.g., screenshots)
+  ipcMain.handle(IPC_CHANNELS.OPEN_PATH, async (_event, filePath: string) => {
+    await shell.openPath(filePath);
+  });
+
   createWindow();
 });
 

@@ -260,12 +260,18 @@ export interface QCTestCase {
   completedAt?: string;
 }
 
+export interface QCCredential {
+  label: string;   // e.g. "Email", "Username", "Password"
+  value: string;
+}
+
 export interface QCTask {
   id: string;
   sessionId: string;
   title: string;
   description: string;
   targetUrl: string;
+  credentials?: QCCredential[];
   testCases: QCTestCase[];
   status: 'draft' | 'generating' | 'ready' | 'running' | 'completed';
   summary?: string;
@@ -304,6 +310,8 @@ export interface InsightsSession {
   activePersonaIndex?: number;
   /** Linked terminal for implementation */
   linkedTerminalId?: string;
+  /** Linked task from ClickUp/Jira */
+  linkedTask?: TerminalTask;
   /** Discussion pipeline status */
   discussionStatus?: DiscussionStatus;
   /** Whether this session is shared with the team */
@@ -327,6 +335,7 @@ export interface InsightsSessionMeta {
   mode?: 'single' | 'roundtable' | 'qc';
   discussionStatus?: DiscussionStatus;
   qcStatus?: QCTask['status'];
+  linkedTaskName?: string;
   createdAt: string;
   updatedAt: string;
 }

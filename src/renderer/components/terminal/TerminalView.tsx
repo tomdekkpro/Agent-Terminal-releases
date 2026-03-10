@@ -18,7 +18,7 @@ import type { TaskManagerTask, TaskManagerList, TerminalTask, AgentProviderMeta 
 const PICKER_PAGE_SIZE = 100;
 
 /** Task Picker Modal - shown when creating terminal with task or linking a task */
-function TaskPickerModal({
+export function TaskPickerModal({
   mode = 'new',
   onSelect,
   onCancel,
@@ -27,7 +27,7 @@ function TaskPickerModal({
   mode?: 'new' | 'link';
   onSelect: (task: TaskManagerTask, useWorktree: boolean) => void;
   onCancel: () => void;
-  onPlain: () => void;
+  onPlain?: () => void;
 }) {
   const settings = useSettingsStore((s) => s.settings);
   const [tasks, setTasks] = useState<TaskManagerTask[]>([]);

@@ -209,6 +209,7 @@ const electronAPI = {
 
   // App
   openExternal: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_EXTERNAL, url),
+  openPath: (filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_PATH, filePath),
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);

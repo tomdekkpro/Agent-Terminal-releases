@@ -28,6 +28,10 @@ export interface EnrichedContext {
 
 // ─── ClickUp Context ──────────────────────────────────────────
 
+export async function fetchTaskContext(taskId: string): Promise<string | null> {
+  return fetchClickUpTask(taskId);
+}
+
 async function fetchClickUpTask(taskId: string): Promise<string | null> {
   const settings = getSettings();
   if (settings.taskManagerProvider === 'none') return null;

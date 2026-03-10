@@ -7,6 +7,7 @@ import type {
   InsightsSessionMeta,
   InsightsStreamEvent,
   Persona,
+  TerminalTask,
 } from '../../shared/types';
 
 interface InsightsState {
@@ -51,6 +52,8 @@ interface InsightsState {
   updateSessionStatus: (status: DiscussionStatus) => Promise<void>;
   addStatusMessage: (content: string, messageType: string, metadata?: Record<string, any>) => Promise<void>;
   linkTerminal: (terminalId: string) => Promise<void>;
+  linkTask: (task: TerminalTask) => Promise<void>;
+  unlinkTask: () => Promise<void>;
   generateSpec: () => Promise<string | null>;
 }
 
@@ -70,7 +73,17 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
   loadSessions: async () => {
     try {
       const result = await window.electronAPI.insightsListSessions();
-      if (result.success) set({ sessions: result.data });
+      if (result.success) {
+        set({ sessions: result.data });
+        // Auto-restore last active session on first load
+        const { activeSession } = get();
+        if (!activeSession) {
+          const lastId = localStorage.getItem('insights:lastSessionId');
+          if (lastId && result.data.some((s: InsightsSessionMeta) => s.id === lastId)) {
+            await get().selectSession(lastId);
+          }
+        }
+      }
     } catch (err) {
       console.error('Failed to load sessions:', err);
     }
@@ -80,6 +93,7 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
     try {
       const result = await window.electronAPI.insightsGetSession(id);
       if (result.success) {
+        localStorage.setItem('insights:lastSessionId', id);
         set({
           activeSession: result.data,
           streamingText: '',
@@ -176,7 +190,10 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
     try {
       await window.electronAPI.insightsDeleteSession(id);
       const { activeSession } = get();
-      if (activeSession?.id === id) set({ activeSession: null, streamingText: '' });
+      if (activeSession?.id === id) {
+        localStorage.removeItem('insights:lastSessionId');
+        set({ activeSession: null, streamingText: '' });
+      }
       await get().loadSessions();
     } catch (err) {
       console.error('Failed to delete session:', err);
@@ -474,6 +491,40 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
       }
     } catch (err) {
       console.error('Failed to link terminal:', err);
+    }
+  },
+
+  linkTask: async (task) => {
+    const { activeSession } = get();
+    if (!activeSession) return;
+    try {
+      const result = await window.electronAPI.insightsUpdateSession(activeSession.id, {
+        linkedTask: task,
+      } as any);
+      if (result.success) {
+        set({ activeSession: result.data });
+        await get().loadSessions();
+      }
+    } catch (err) {
+      console.error('Failed to link task:', err);
+    }
+  },
+
+  unlinkTask: async () => {
+    const { activeSession } = get();
+    if (!activeSession) return;
+    try {
+      const result = await window.electronAPI.insightsUpdateSession(activeSession.id, {
+        linkedTask: undefined,
+      } as any);
+      if (result.success) {
+        set((state) => ({
+          activeSession: state.activeSession ? { ...state.activeSession, linkedTask: undefined } : null,
+        }));
+        await get().loadSessions();
+      }
+    } catch (err) {
+      console.error('Failed to unlink task:', err);
     }
   },
 

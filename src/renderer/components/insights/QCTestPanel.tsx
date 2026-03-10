@@ -1,21 +1,26 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import {
   Play, Square, CheckCircle, XCircle, AlertTriangle, Clock, ChevronDown, ChevronRight,
   RefreshCw, Loader2, Globe, FileText, ShieldCheck, Plus, Trash2, Pencil,
-  Save, X,
+  Save, X, Image, KeyRound, Eye, EyeOff,
 } from 'lucide-react';
-import type { QCTask, QCTestCase, QCTestStep } from '../../../shared/types';
+import type { QCTask, QCTestCase, QCTestStep, QCCredential } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
 
 interface QCTestPanelProps {
   sessionId: string;
   qcTask: QCTask | undefined;
   model: string;
-  onTaskUpdate: (task: QCTask) => void;
+  onTaskUpdate: (task: QCTask) => void | Promise<void>;
+  onNewTask?: () => void;
+  onRenameSession?: (title: string) => void | Promise<void>;
 }
 
-function StepStatusIcon({ status }: { status: QCTestStep['status'] }) {
+function StepStatusIcon({ status, running }: { status: QCTestStep['status']; running?: boolean }) {
+  if (running) {
+    return <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />;
+  }
   switch (status) {
     case 'passed':
       return <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />;
@@ -48,6 +53,7 @@ function TestCaseStatusIcon({ status }: { status: QCTestCase['status'] }) {
 function EditableStep({
   step,
   editing,
+  running,
   onSave,
   onDelete,
   onStartEdit,
@@ -55,6 +61,7 @@ function EditableStep({
 }: {
   step: QCTestStep;
   editing: boolean;
+  running?: boolean;
   onSave: (step: QCTestStep) => void;
   onDelete: () => void;
   onStartEdit: () => void;
@@ -107,9 +114,9 @@ function EditableStep({
   }
 
   return (
-    <div className="flex gap-2 text-xs group/step">
+    <div className={cn("flex gap-2 text-xs group/step", running && "bg-blue-500/5 rounded-md px-1.5 py-1 -mx-1.5")}>
       <div className="shrink-0 mt-0.5">
-        <StepStatusIcon status={step.status} />
+        <StepStatusIcon status={step.status} running={running} />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-start gap-2">
@@ -123,7 +130,25 @@ function EditableStep({
               </p>
             )}
             {step.screenshot && (
-              <p className="text-blue-400 mt-0.5 text-[10px]">Screenshot: {step.screenshot}</p>
+              <button
+                className={cn(
+                  "flex items-center gap-1 mt-1 text-[10px] px-1.5 py-0.5 rounded",
+                  step.screenshot.includes('.png') || step.screenshot.includes('.jpg')
+                    ? "text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 cursor-pointer"
+                    : "text-blue-400/70 cursor-default"
+                )}
+                onClick={() => {
+                  if (step.screenshot && (step.screenshot.includes('.png') || step.screenshot.includes('.jpg'))) {
+                    window.electronAPI.openPath(step.screenshot);
+                  }
+                }}
+                title={step.screenshot.includes('.png') ? 'Click to open screenshot' : undefined}
+              >
+                <Image className="w-3 h-3" />
+                {step.screenshot.includes('.png') || step.screenshot.includes('.jpg')
+                  ? 'View Screenshot'
+                  : step.screenshot}
+              </button>
             )}
           </div>
           <div className="flex items-center gap-0.5 opacity-0 group-hover/step:opacity-100 transition-opacity shrink-0">
@@ -154,15 +179,18 @@ function TestCaseCard({
   testCase,
   sessionId,
   model,
+  runningStepOrder,
   onUpdate,
   onDelete,
 }: {
   testCase: QCTestCase;
   sessionId: string;
   model: string;
+  runningStepOrder?: number;
   onUpdate: (tc: QCTestCase) => void;
   onDelete: () => void;
 }) {
+  const isRunning = testCase.status === 'running';
   const [expanded, setExpanded] = useState(false);
   const [running, setRunning] = useState(false);
   const [editingName, setEditingName] = useState(false);
@@ -170,6 +198,11 @@ function TestCaseCard({
   const [nameText, setNameText] = useState(testCase.name);
   const [descText, setDescText] = useState(testCase.description);
   const [addingStep, setAddingStep] = useState(false);
+
+  // Auto-expand when test case starts running
+  useEffect(() => {
+    if (isRunning) setExpanded(true);
+  }, [isRunning]);
 
   const handleRunSingle = async () => {
     setRunning(true);
@@ -225,7 +258,14 @@ function TestCaseCard({
         {expanded ? <ChevronDown className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : <ChevronRight className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
         <TestCaseStatusIcon status={testCase.status} />
         <span className="text-sm text-[var(--text-primary)] flex-1 truncate">{testCase.name}</span>
-        <span className="text-[10px] text-[var(--text-muted)]">{testCase.steps.length} steps</span>
+        {isRunning && runningStepOrder ? (
+          <span className="text-[10px] text-blue-400 flex items-center gap-1">
+            <Loader2 className="w-2.5 h-2.5 animate-spin" />
+            Step {runningStepOrder}/{testCase.steps.length}
+          </span>
+        ) : (
+          <span className="text-[10px] text-[var(--text-muted)]">{testCase.steps.length} steps</span>
+        )}
         <div className="flex items-center gap-1 opacity-0 group-hover/card:opacity-100 transition-opacity">
           <button
             onClick={(e) => { e.stopPropagation(); setExpanded(true); setEditingName(true); }}
@@ -300,6 +340,7 @@ function TestCaseCard({
                 key={step.id}
                 step={step}
                 editing={editingStepId === step.id}
+                running={isRunning && runningStepOrder === step.order}
                 onSave={handleSaveStep}
                 onDelete={() => handleDeleteStep(step.id)}
                 onStartEdit={() => setEditingStepId(step.id)}
@@ -323,6 +364,98 @@ function TestCaseCard({
               <Plus className="w-3 h-3" /> Add step
             </button>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Credentials Section ─────────────────────────────────────────
+
+function CredentialsSection({
+  credentials,
+  onChange,
+}: {
+  credentials: QCCredential[];
+  onChange: (creds: QCCredential[]) => void;
+}) {
+  const [expanded, setExpanded] = useState(credentials.length > 0);
+  const [visibleValues, setVisibleValues] = useState<Record<number, boolean>>({});
+
+  const handleAdd = () => {
+    onChange([...credentials, { label: '', value: '' }]);
+    setExpanded(true);
+  };
+
+  const handleUpdate = (index: number, field: 'label' | 'value', val: string) => {
+    const updated = credentials.map((c, i) => i === index ? { ...c, [field]: val } : c);
+    onChange(updated);
+  };
+
+  const handleRemove = (index: number) => {
+    onChange(credentials.filter((_, i) => i !== index));
+  };
+
+  const toggleVisible = (index: number) => {
+    setVisibleValues(prev => ({ ...prev, [index]: !prev[index] }));
+  };
+
+  return (
+    <div className="border border-[var(--border)] rounded-lg overflow-hidden">
+      <div
+        className="flex items-center gap-2 px-3 py-2 bg-[var(--bg-secondary)] cursor-pointer hover:bg-[var(--bg-tertiary)] transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        {expanded ? <ChevronDown className="w-3 h-3 text-[var(--text-muted)]" /> : <ChevronRight className="w-3 h-3 text-[var(--text-muted)]" />}
+        <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+        <span className="text-xs font-medium text-[var(--text-primary)]">Login Credentials</span>
+        {credentials.length > 0 && (
+          <span className="text-[10px] text-[var(--text-muted)]">{credentials.length} field{credentials.length !== 1 ? 's' : ''}</span>
+        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); handleAdd(); }}
+          className="ml-auto w-5 h-5 rounded flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors"
+          title="Add credential"
+        >
+          <Plus className="w-3 h-3" />
+        </button>
+      </div>
+      {expanded && (
+        <div className="px-3 py-2 space-y-2">
+          {credentials.length === 0 && (
+            <p className="text-[10px] text-[var(--text-muted)] italic">No credentials configured. Add login info so tests can authenticate automatically.</p>
+          )}
+          {credentials.map((cred, i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <input
+                value={cred.label}
+                onChange={(e) => handleUpdate(i, 'label', e.target.value)}
+                placeholder="Label (e.g. Email)"
+                className="w-24 text-[11px] bg-[var(--bg-primary)] text-[var(--text-primary)] border border-[var(--border)] rounded px-2 py-1 outline-none focus:border-[var(--accent)]"
+              />
+              <div className="flex-1 relative">
+                <input
+                  type={visibleValues[i] ? 'text' : 'password'}
+                  value={cred.value}
+                  onChange={(e) => handleUpdate(i, 'value', e.target.value)}
+                  placeholder="Value"
+                  className="w-full text-[11px] bg-[var(--bg-primary)] text-[var(--text-primary)] border border-[var(--border)] rounded px-2 py-1 pr-7 outline-none focus:border-[var(--accent)]"
+                />
+                <button
+                  onClick={() => toggleVisible(i)}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                >
+                  {visibleValues[i] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                </button>
+              </div>
+              <button
+                onClick={() => handleRemove(i)}
+                className="w-5 h-5 rounded flex items-center justify-center text-[var(--text-muted)] hover:text-red-400 transition-colors shrink-0"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -445,40 +578,93 @@ function NewTestCaseForm({
 
 // ─── Main Panel ──────────────────────────────────────────────────
 
-export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate }: QCTestPanelProps) {
+export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask, onRenameSession }: QCTestPanelProps) {
   const [showCreateForm, setShowCreateForm] = useState(!qcTask);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [targetUrl, setTargetUrl] = useState('');
   const [generating, setGenerating] = useState(false);
-  const [runningAll, setRunningAll] = useState(false);
+  const [runningAll, setRunningAll] = useState(
+    () => qcTask?.status === 'running' || (qcTask?.testCases.some(tc => tc.status === 'running') ?? false),
+  );
   const [error, setError] = useState<string | null>(null);
   const [addingTestCase, setAddingTestCase] = useState(false);
   const [editingTask, setEditingTask] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editUrl, setEditUrl] = useState('');
+  // Track which step is currently running per test case: { [testCaseId]: stepOrder }
+  const [runningSteps, setRunningSteps] = useState<Record<string, number>>({});
 
-  // Listen for QC events
+  // Ref to always access the latest qcTask inside event listeners (avoids stale closures)
+  const qcTaskRef = useRef(qcTask);
+  qcTaskRef.current = qcTask;
+  const onTaskUpdateRef = useRef(onTaskUpdate);
+  onTaskUpdateRef.current = onTaskUpdate;
+
+  // Keep runningAll in sync with persisted task/test-case status
+  useEffect(() => {
+    const isRunning = qcTask?.status === 'running' || (qcTask?.testCases.some(tc => tc.status === 'running') ?? false);
+    setRunningAll(isRunning);
+  }, [qcTask?.status, qcTask?.testCases]);
+
+  // Listen for QC events — uses refs to always read the latest qcTask/onTaskUpdate
+  // so that completed test cases keep their final status (passed/failed) instead of
+  // being reverted to 'running' by a stale closure.
   useEffect(() => {
     const cleanup = window.electronAPI.onQCEvent((event: any) => {
       if (event.sessionId !== sessionId) return;
-      if (event.type === 'test-done' && event.testCase && qcTask) {
-        const updated: QCTask = {
-          ...qcTask,
-          testCases: qcTask.testCases.map((tc: QCTestCase) =>
+      const task = qcTaskRef.current;
+      const update = onTaskUpdateRef.current;
+
+      // Track step progress
+      if (event.type === 'step-update' && event.testCaseId && event.stepOrder) {
+        setRunningSteps(prev => ({ ...prev, [event.testCaseId!]: event.stepOrder! }));
+        if (task) {
+          const tc = task.testCases.find(t => t.id === event.testCaseId);
+          if (tc && tc.status !== 'running') {
+            update({
+              ...task,
+              testCases: task.testCases.map(t =>
+                t.id === event.testCaseId ? { ...t, status: 'running' as const } : t,
+              ),
+            });
+          }
+        }
+      }
+
+      if (event.type === 'test-start' && event.testCaseId && task) {
+        setRunningSteps(prev => ({ ...prev, [event.testCaseId!]: 0 }));
+        update({
+          ...task,
+          status: 'running',
+          testCases: task.testCases.map(tc =>
+            tc.id === event.testCaseId ? { ...tc, status: 'running' as const } : tc,
+          ),
+        });
+      }
+
+      if (event.type === 'test-done' && event.testCase && task) {
+        setRunningSteps(prev => {
+          const next = { ...prev };
+          delete next[event.testCaseId!];
+          return next;
+        });
+        update({
+          ...task,
+          testCases: task.testCases.map((tc: QCTestCase) =>
             tc.id === event.testCaseId ? event.testCase! : tc,
           ),
-        };
-        onTaskUpdate(updated);
+        });
       }
-      if (event.type === 'all-done' && event.summary && qcTask) {
-        onTaskUpdate({ ...qcTask, status: 'completed', summary: event.summary });
+
+      if (event.type === 'all-done' && event.summary) {
+        setRunningSteps({});
         setRunningAll(false);
       }
     });
     return () => { cleanup(); };
-  }, [sessionId, qcTask, onTaskUpdate]);
+  }, [sessionId]);
 
   const handleGenerate = useCallback(async () => {
     // Use current task values when regenerating, form values when creating
@@ -491,8 +677,11 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate }: QCTestPa
     try {
       const result = await window.electronAPI.qcGenerateTests(sessionId, genTitle, genDesc, genUrl, model);
       if (result.success) {
-        onTaskUpdate(result.data);
+        await onTaskUpdate(result.data);
         setShowCreateForm(false);
+        // Update session title AFTER onTaskUpdate has persisted qcTask to disk
+        // to avoid concurrent file writes that can corrupt the session JSON.
+        await onRenameSession?.(`QC: ${genTitle}`);
       } else {
         setError(result.error || 'Failed to generate tests');
       }
@@ -569,6 +758,15 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate }: QCTestPa
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-amber-400" />
           <h3 className="text-sm font-medium text-[var(--text-primary)]">QC Testing</h3>
+          {qcTask && onNewTask && (
+            <button
+              onClick={onNewTask}
+              className="ml-2 flex items-center gap-1 text-[10px] text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-0.5 rounded transition-colors"
+              title="Create a new QC testing session"
+            >
+              <Plus className="w-3 h-3" /> New Task
+            </button>
+          )}
           {qcTask && total > 0 && (
             <div className="flex items-center gap-2 ml-auto text-[10px]">
               {running > 0 && <span className="flex items-center gap-0.5 text-blue-400"><Loader2 className="w-2.5 h-2.5 animate-spin" />{running} running</span>}
@@ -706,12 +904,6 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate }: QCTestPa
                       >
                         <Pencil className="w-3 h-3" />
                       </button>
-                      <button
-                        onClick={() => setShowCreateForm(true)}
-                        className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                      >
-                        New task
-                      </button>
                     </div>
                   </div>
                   {qcTask.description && (
@@ -724,6 +916,14 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate }: QCTestPa
                 </div>
               )}
             </div>
+
+            {/* Credentials */}
+            <CredentialsSection
+              credentials={qcTask.credentials || []}
+              onChange={(creds) => {
+                onTaskUpdate({ ...qcTask, credentials: creds, updatedAt: new Date().toISOString() });
+              }}
+            />
 
             {/* Action buttons */}
             <div className="flex gap-2">
@@ -773,6 +973,7 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate }: QCTestPa
                   testCase={tc}
                   sessionId={sessionId}
                   model={model}
+                  runningStepOrder={runningSteps[tc.id]}
                   onUpdate={handleTestCaseUpdate}
                   onDelete={() => handleDeleteTestCase(tc.id)}
                 />

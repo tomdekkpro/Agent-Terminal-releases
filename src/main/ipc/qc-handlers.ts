@@ -86,6 +86,7 @@ export function registerQCHandlers(
           session.qcTask.id,
           { ...testCase, status: 'pending', steps: testCase.steps.map((s) => ({ ...s, status: 'pending' as const })) },
           session.qcTask.targetUrl,
+          session.qcTask.credentials,
           model,
           getWindow,
         );

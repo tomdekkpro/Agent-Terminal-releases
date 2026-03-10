@@ -3,7 +3,7 @@ import type { BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { AgentProviderId, InsightsMessage, InsightsModel, InsightsStreamEvent, Persona } from '../../shared/types';
 import { agentRegistry } from '../ipc/providers/agent-registry';
-import { enrichContext } from './context-enricher';
+import { enrichContext, fetchTaskContext } from './context-enricher';
 
 const activeStreams = new Map<string, ChildProcess>();
 
@@ -17,6 +17,7 @@ export async function sendMessage(
   provider?: AgentProviderId,
   copilotModel?: string,
   persona?: Persona,
+  linkedTaskId?: string,
 ): Promise<string> {
   const providerId = provider || 'claude';
   const agentProvider = agentRegistry.get(providerId);
@@ -35,6 +36,19 @@ export async function sendMessage(
     externalContext = await enrichContext(userMessage, persona, projectPath);
   } catch {
     // Non-critical — continue without enrichment
+  }
+
+  // Inject linked task context (always, since user explicitly linked it)
+  if (linkedTaskId) {
+    try {
+      const taskCtx = await fetchTaskContext(linkedTaskId);
+      if (taskCtx) {
+        const linkedBlock = `--- LINKED TASK CONTEXT ---\n${taskCtx}\n--- END LINKED TASK CONTEXT ---\n`;
+        externalContext = externalContext ? `${linkedBlock}\n${externalContext}` : linkedBlock;
+      }
+    } catch {
+      // Non-critical
+    }
   }
 
   // Build the effective user message, injecting persona context and external data

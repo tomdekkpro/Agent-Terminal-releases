@@ -131,6 +131,8 @@ export function registerInsightsHandlers(
           getWindow,
           session.provider,
           session.copilotModel,
+          undefined,
+          session.linkedTask?.id,
         );
 
         // Reload session (may have been modified), add assistant message
@@ -190,6 +192,7 @@ export function registerInsightsHandlers(
           session.provider,
           session.copilotModel,
           persona,
+          session.linkedTask?.id,
         );
 
         // Reload and add persona's response
@@ -237,6 +240,7 @@ export function registerInsightsHandlers(
         if (updates.shared !== undefined) session.shared = updates.shared;
         if (updates.participants !== undefined) session.participants = updates.participants;
         if (updates.qcTask !== undefined) session.qcTask = updates.qcTask;
+        if (updates.linkedTask !== undefined) session.linkedTask = updates.linkedTask;
 
         // If messages are provided (for adding status/spec cards), append them
         if (updates.messages && updates.messages.length > session.messages.length) {

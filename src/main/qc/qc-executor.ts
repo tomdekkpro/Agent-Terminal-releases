@@ -2,8 +2,21 @@ import { spawn, execSync, type ChildProcess } from 'child_process';
 import { v4 as uuidv4 } from 'uuid';
 import type { BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../shared/constants';
-import type { QCTask, QCTestCase, QCTestStep, InsightsModel } from '../../shared/types';
+import type { QCTask, QCTestCase, QCTestStep, QCCredential, InsightsModel } from '../../shared/types';
+import { DEFAULT_PERSONAS } from '../../shared/types';
 import { agentRegistry } from '../ipc/providers/agent-registry';
+import { loadPersonas } from '../insights/persona-storage';
+
+/** Load the QC persona's systemPrompt (falls back to default if not found) */
+async function getQCPersonaPrompt(): Promise<string> {
+  try {
+    const personas = await loadPersonas();
+    const qcPersona = personas.find((p) => p.id === 'qc');
+    if (qcPersona?.systemPrompt) return qcPersona.systemPrompt;
+  } catch { /* fall through to default */ }
+  const defaultQC = DEFAULT_PERSONAS.find((p) => p.id === 'qc');
+  return defaultQC?.systemPrompt ?? '';
+}
 
 /** Kill a process and its entire tree (important on Windows where SIGTERM doesn't cascade) */
 function killProcessTree(child: ChildProcess): void {
@@ -29,6 +42,7 @@ export interface QCEvent {
   taskId: string;
   testCaseId?: string;
   stepId?: string;
+  stepOrder?: number;
   status?: string;
   message?: string;
   screenshot?: string;
@@ -60,7 +74,11 @@ export async function generateTestCases(
     throw new Error('Claude CLI is required for QC testing');
   }
 
-  const prompt = `You are a QC (Quality Control) test engineer. Generate manual test cases for the following task.
+  const personaPrompt = await getQCPersonaPrompt();
+
+  const prompt = `${personaPrompt}
+
+Generate manual test cases for the following task.
 
 TASK: ${taskTitle}
 DESCRIPTION: ${taskDescription}
@@ -102,9 +120,11 @@ Generate 3-8 test cases covering:
     delete env.CLAUDECODE;
 
     const child = spawn('claude', [
+      '-p',
       '--output-format', 'stream-json',
       '--verbose',
       '--model', modelId,
+      '--dangerously-skip-permissions',
     ], {
       env,
       shell: true,
@@ -116,6 +136,11 @@ Generate 3-8 test cases covering:
 
     let fullText = '';
     let buffer = '';
+    let stderrOutput = '';
+
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderrOutput += chunk.toString();
+    });
 
     child.stdout?.on('data', (chunk: Buffer) => {
       buffer += chunk.toString();
@@ -173,7 +198,7 @@ Generate 3-8 test cases covering:
 
         resolve(testCases);
       } catch (err) {
-        reject(new Error(`Failed to parse test cases: ${err instanceof Error ? err.message : 'Unknown error'}\n\nRaw output:\n${fullText.slice(0, 500)}`));
+        reject(new Error(`Failed to parse test cases: ${err instanceof Error ? err.message : 'Unknown error'}\n\nRaw output:\n${fullText.slice(0, 500)}\n\nStderr:\n${stderrOutput.slice(0, 500)}`));
       }
     });
 
@@ -196,6 +221,7 @@ export async function runTestCase(
   taskId: string,
   testCase: QCTestCase,
   targetUrl: string,
+  credentials: QCCredential[] | undefined,
   model: InsightsModel,
   getWindow: () => BrowserWindow | null,
 ): Promise<QCTestCase> {
@@ -212,17 +238,25 @@ export async function runTestCase(
     message: `Starting: ${testCase.name}`,
   });
 
+  const personaPrompt = await getQCPersonaPrompt();
+
   const stepsDescription = testCase.steps
     .map((s, i) => `  Step ${i + 1}: ACTION: ${s.action} | EXPECTED: ${s.expected}`)
     .join('\n');
 
-  const prompt = `You are a QC tester executing a manual test case using a real browser.
+  const credentialsBlock = credentials && credentials.length > 0
+    ? `\nLOGIN CREDENTIALS (use these whenever login/authentication is needed):\n${credentials.map(c => `  ${c.label}: ${c.value}`).join('\n')}\n`
+    : '';
+
+  const prompt = `${personaPrompt}
+
+You are executing a manual test case using a real browser.
 You MUST use the Playwright browser tools (MCP) to perform each step.
 
 TEST CASE: ${testCase.name}
 DESCRIPTION: ${testCase.description}
 TARGET URL: ${targetUrl}
-
+${credentialsBlock}
 STEPS TO EXECUTE:
 ${stepsDescription}
 
@@ -257,10 +291,12 @@ IMPORTANT: Actually use the browser tools to navigate and interact with the page
     delete env.CLAUDECODE;
 
     const child = spawn('claude', [
+      '-p',
       '--output-format', 'stream-json',
       '--verbose',
       '--model', modelId,
       '--allowedTools', 'mcp__playwright__*',
+      '--dangerously-skip-permissions',
     ], {
       env,
       shell: true,
@@ -274,6 +310,52 @@ IMPORTANT: Actually use the browser tools to navigate and interact with the page
 
     let fullText = '';
     let buffer = '';
+    let stderrOutput = '';
+    let currentStepOrder = 0;
+    let lastReportedStep = 0;
+    let recentText = ''; // Accumulate recent text for step detection across fragments
+    const screenshotPaths: Map<number, string> = new Map(); // stepOrder -> file path
+
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderrOutput += chunk.toString();
+    });
+
+    // Detect which step is being executed from accumulated recent text
+    const detectStep = (): void => {
+      // Search all occurrences of step patterns in recent text, take the highest
+      const matches = [...recentText.matchAll(/\b[Ss]tep\s+(\d+)\b/g)];
+      if (matches.length > 0) {
+        const stepNum = parseInt(matches[matches.length - 1][1], 10);
+        if (stepNum >= 1 && stepNum <= testCase.steps.length && stepNum !== lastReportedStep) {
+          currentStepOrder = stepNum;
+          lastReportedStep = stepNum;
+          const step = testCase.steps.find(s => s.order === stepNum);
+          sendQCEvent(getWindow, {
+            type: 'step-update',
+            sessionId,
+            taskId,
+            testCaseId: testCase.id,
+            stepOrder: stepNum,
+            stepId: step?.id,
+            status: 'running',
+            message: `Running step ${stepNum}: ${step?.action || ''}`,
+          });
+          // Reset recent text after detecting a step to avoid re-detecting
+          recentText = '';
+        }
+      }
+      // Keep recent text manageable
+      if (recentText.length > 500) recentText = recentText.slice(-200);
+    };
+
+    // Extract screenshot file path from tool_result content
+    const extractScreenshotPath = (content: string): string | undefined => {
+      // Match paths like .playwright-mcp\page-xxx.png or absolute paths
+      const match = content.match(/\.(playwright-mcp[\\/][^\s)]+\.png)/i)
+        || content.match(/([A-Za-z]:[\\/][^\s)]+\.png)/i)
+        || content.match(/([\\/][^\s)]+\.png)/i);
+      return match ? match[0] : undefined;
+    };
 
     child.stdout?.on('data', (chunk: Buffer) => {
       buffer += chunk.toString();
@@ -286,6 +368,8 @@ IMPORTANT: Actually use the browser tools to navigate and interact with the page
           const parsed = JSON.parse(trimmed);
           if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
             fullText += parsed.delta.text;
+            recentText += parsed.delta.text;
+            detectStep();
           }
           if (parsed.type === 'result' && parsed.result) {
             const text = typeof parsed.result === 'string'
@@ -294,17 +378,49 @@ IMPORTANT: Actually use the browser tools to navigate and interact with the page
             if (text) fullText += text;
           }
           if (parsed.type === 'assistant' && parsed.content) {
-            fullText += parsed.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+            const text = parsed.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+            fullText += text;
+            recentText += text;
+            detectStep();
           }
-          // Capture tool_use events for screenshots
-          if (parsed.type === 'tool_use' && parsed.name?.includes('screenshot')) {
-            sendQCEvent(getWindow, {
-              type: 'screenshot',
-              sessionId,
-              taskId,
-              testCaseId: testCase.id,
-              message: 'Taking screenshot...',
-            });
+          // Detect tool_use events - browser interactions
+          if (parsed.type === 'tool_use') {
+            const toolName: string = parsed.name || '';
+            if (toolName.includes('screenshot')) {
+              sendQCEvent(getWindow, {
+                type: 'screenshot',
+                sessionId,
+                taskId,
+                testCaseId: testCase.id,
+                stepOrder: currentStepOrder,
+                message: `Step ${currentStepOrder}: Taking screenshot...`,
+              });
+            }
+            // If no step detected yet, default to step 1 on first browser tool
+            if (currentStepOrder === 0 && (toolName.includes('navigate') || toolName.includes('click') || toolName.includes('type') || toolName.includes('fill'))) {
+              currentStepOrder = 1;
+              lastReportedStep = 1;
+              const step = testCase.steps[0];
+              sendQCEvent(getWindow, {
+                type: 'step-update',
+                sessionId,
+                taskId,
+                testCaseId: testCase.id,
+                stepOrder: 1,
+                stepId: step?.id,
+                status: 'running',
+                message: `Running step 1: ${step?.action || ''}`,
+              });
+            }
+          }
+          // Capture screenshot file paths from tool results
+          if (parsed.type === 'tool_result') {
+            const resultText = typeof parsed.output === 'string' ? parsed.output
+              : Array.isArray(parsed.content) ? parsed.content.map((b: any) => b.text || '').join('') : '';
+            const screenshotPath = extractScreenshotPath(resultText);
+            if (screenshotPath && currentStepOrder > 0) {
+              screenshotPaths.set(currentStepOrder, screenshotPath);
+            }
           }
         } catch {
           // ignore
@@ -330,11 +446,13 @@ IMPORTANT: Actually use the browser tools to navigate and interact with the page
         const updatedSteps: QCTestStep[] = testCase.steps.map((step) => {
           const resultStep = result.steps.find((rs) => rs.order === step.order);
           if (resultStep) {
+            // Prefer captured file path over AI description, fall back to description
+            const screenshotFile = screenshotPaths.get(step.order);
             return {
               ...step,
               actual: resultStep.actual,
               status: resultStep.status === 'passed' ? 'passed' as const : 'failed' as const,
-              screenshot: resultStep.screenshot,
+              screenshot: screenshotFile || resultStep.screenshot,
             };
           }
           return { ...step, status: 'skipped' as const };
@@ -363,7 +481,7 @@ IMPORTANT: Actually use the browser tools to navigate and interact with the page
         const updatedTestCase: QCTestCase = {
           ...testCase,
           status: 'error',
-          errorMessage: fullText.slice(0, 500) || 'Failed to parse test results',
+          errorMessage: fullText.slice(0, 500) || stderrOutput.slice(0, 500) || 'Failed to parse test results',
           completedAt: new Date().toISOString(),
         };
 
@@ -410,7 +528,7 @@ export async function runAllTests(
       continue;
     }
     try {
-      const result = await runTestCase(sessionId, task.id, tc, task.targetUrl, model, getWindow);
+      const result = await runTestCase(sessionId, task.id, tc, task.targetUrl, task.credentials, model, getWindow);
       updatedCases.push(result);
     } catch (err) {
       updatedCases.push({

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Sparkles, PanelLeftClose, PanelLeftOpen, Square, Send, FolderOpen, AlertCircle, X, ChevronDown, Download, Users, User, ClipboardList, Play, Terminal, Settings2, Share2, Globe, ShieldCheck } from 'lucide-react';
+import { Sparkles, PanelLeftClose, PanelLeftOpen, Square, Send, FolderOpen, AlertCircle, X, ChevronDown, Download, Users, User, ClipboardList, Play, Terminal, Settings2, Share2, Globe, ShieldCheck, Ticket } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useInsightsStore } from '../../stores/insights-store';
@@ -13,7 +13,8 @@ import { PersonaBadge } from './PersonaBadge';
 import { PersonaManager } from './PersonaManager';
 import { QCTestPanel } from './QCTestPanel';
 import { PipelineCard } from './PipelineCard';
-import type { AgentProviderId, AgentProviderMeta, InsightsModel, InsightsMessage, Persona, SharedSessionInfo } from '../../../shared/types';
+import { TaskPickerModal } from '../terminal/TerminalView';
+import type { AgentProviderId, AgentProviderMeta, InsightsModel, InsightsMessage, Persona, SharedSessionInfo, TaskManagerTask } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
 import { useTeamStore, onSessionMessage, onSessionParticipants } from '../../stores/team-store';
 
@@ -67,6 +68,7 @@ export function InsightsView() {
     setSelectedProjectPath, setSelectedProvider, setSearchQuery,
     togglePin, deleteMessage, retryLastMessage, exportSession,
     loadPersonas, generateSpec, addStatusMessage, linkTerminal,
+    linkTask, unlinkTask,
   } = store;
 
   const projects = useProjectStore((s) => s.projects);
@@ -83,6 +85,7 @@ export function InsightsView() {
   const [showPersonaManager, setShowPersonaManager] = useState(false);
   const [showPersonaSelector, setShowPersonaSelector] = useState(false);
   const [selectedPersonaIds, setSelectedPersonaIds] = useState<string[]>([]);
+  const [showTaskPicker, setShowTaskPicker] = useState(false);
   // @mention autocomplete
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -508,10 +511,10 @@ export function InsightsView() {
 
   const handleQCTaskUpdate = useCallback(async (task: any) => {
     if (!activeSession) return;
-    await window.electronAPI.insightsUpdateSession(activeSession.id, { qcTask: task });
-    useInsightsStore.setState({
-      activeSession: { ...activeSession, qcTask: task },
-    });
+    const result = await window.electronAPI.insightsUpdateSession(activeSession.id, { qcTask: task });
+    if (result.success && result.data) {
+      useInsightsStore.setState({ activeSession: result.data });
+    }
   }, [activeSession]);
 
   // Find last assistant message index
@@ -529,6 +532,24 @@ export function InsightsView() {
   return (
     <div className="flex h-full relative">
       {showPersonaManager && <PersonaManager onClose={() => setShowPersonaManager(false)} />}
+      {showTaskPicker && (
+        <TaskPickerModal
+          mode="link"
+          onSelect={(task: TaskManagerTask) => {
+            linkTask({
+              id: task.id,
+              customId: task.customId,
+              name: task.name,
+              status: task.status.name,
+              statusColor: task.status.color,
+              url: task.url,
+              provider: task.provider,
+            });
+            setShowTaskPicker(false);
+          }}
+          onCancel={() => setShowTaskPicker(false)}
+        />
+      )}
 
       {/* Persona selector for new round table */}
       {showPersonaSelector && (
@@ -653,6 +674,35 @@ export function InsightsView() {
               </>
             )}
 
+            {/* Linked task */}
+            {activeSession?.linkedTask ? (
+              <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 max-w-[200px]">
+                <Ticket className="w-2.5 h-2.5 shrink-0" />
+                <button
+                  onClick={() => window.electronAPI.openExternal?.(activeSession.linkedTask!.url)}
+                  className="truncate hover:underline"
+                  title={activeSession.linkedTask.name}
+                >
+                  {activeSession.linkedTask.customId || activeSession.linkedTask.name}
+                </button>
+                <button
+                  onClick={() => unlinkTask()}
+                  className="ml-0.5 hover:text-amber-200 shrink-0"
+                  title="Unlink task"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </span>
+            ) : activeSession ? (
+              <button
+                onClick={() => setShowTaskPicker(true)}
+                className="flex items-center gap-1 text-xs text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1 rounded-md transition-colors"
+                title="Link a ClickUp/Jira task"
+              >
+                <Ticket className="w-3 h-3" /> Link Task
+              </button>
+            ) : null}
+
             {/* Share with team */}
             {teamConnected && activeSession && !activeSession.shared && (
               <button
@@ -726,6 +776,8 @@ export function InsightsView() {
             qcTask={activeSession.qcTask}
             model={selectedModel || 'sonnet'}
             onTaskUpdate={handleQCTaskUpdate}
+            onNewTask={handleNewQCSession}
+            onRenameSession={(title) => renameSession(activeSession.id, title)}
           />
         )}
 
