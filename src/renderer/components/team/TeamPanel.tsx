@@ -390,10 +390,12 @@ export function TeamPanel() {
     for (const persona of respondingPersonas) {
       setPersonaLoading(persona.id);
       try {
+        const project = projects.find((p) => p.id === activeProjectId);
         const result = await window.electronAPI.teamPersonaReply(
           text,
           persona,
           settings.defaultModel,
+          project?.path,
         );
         if (result?.success && result.data) {
           await sendMessage(result.data, {
@@ -408,7 +410,7 @@ export function TeamPanel() {
       }
       setPersonaLoading(null);
     }
-  }, [input, pendingImage, connected, sendMessage, personas, onlineUsers, currentUser, settings.defaultModel]);
+  }, [input, pendingImage, connected, sendMessage, personas, onlineUsers, currentUser, settings.defaultModel, projects, activeProjectId]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (showMentions) {

@@ -185,8 +185,8 @@ const electronAPI = {
   teamLeaveSession: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_LEAVE_SESSION, sessionId),
   teamSendSessionMessage: (sessionId: string, message: any) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_SEND_SESSION_MESSAGE, sessionId, message),
   teamTestConnection: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_TEST_CONNECTION, url),
-  teamPersonaReply: (content: string, persona: any, model?: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.TEAM_PERSONA_REPLY, content, persona, model),
+  teamPersonaReply: (content: string, persona: any, model?: string, projectPath?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.TEAM_PERSONA_REPLY, content, persona, model, projectPath),
   teamLoadHistory: (repo: string) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_LOAD_HISTORY, repo),
   teamSaveHistory: (repo: string, messages: any[]) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_SAVE_HISTORY, repo, messages),
   onTeamEvent: (callback: (event: any) => void) => {

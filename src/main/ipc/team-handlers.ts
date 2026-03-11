@@ -178,7 +178,7 @@ export function registerTeamHandlers(
 
   ipcMain.handle(
     IPC_CHANNELS.TEAM_PERSONA_REPLY,
-    async (_event, content: string, persona: Persona, model?: InsightsModel) => {
+    async (_event, content: string, persona: Persona, model?: InsightsModel, projectPath?: string) => {
       try {
         // Use a transient session ID — no data is saved to disk
         const transientId = `__team_persona_${uuid()}`;
@@ -187,7 +187,7 @@ export function registerTeamHandlers(
           [],          // no history — one-shot reply
           content,
           model || 'sonnet',
-          undefined,   // no projectPath
+          projectPath, // project context for file access and integrations
           getWindow,
           undefined,   // default provider (claude)
           undefined,   // no copilotModel
