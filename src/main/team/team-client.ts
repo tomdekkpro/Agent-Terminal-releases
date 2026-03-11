@@ -46,10 +46,8 @@ export function connect(url: string, user: TeamUser): void {
 
     ws.on('open', () => {
       debugLog(`[TeamClient] Connected to ${url}`);
-      // Join the room
+      // Join the room — server will broadcast presence (including us) to all peers
       sendToServer({ type: 'join', user });
-      // Notify renderer
-      sendToRenderer({ type: 'presence', users: [user] });
     });
 
     ws.on('message', (raw) => {
@@ -103,14 +101,15 @@ export function disconnect(): void {
   sendToRenderer({ type: 'presence', users: [] });
 }
 
-export function sendChatMessage(content: string): void {
+export function sendChatMessage(content: string, meta?: Record<string, string>): void {
   if (!currentUser) return;
   const message: TeamMessage = {
     id: uuid(),
-    from: currentUser.username,
+    from: meta?.personaName || currentUser.username,
     content,
     timestamp: new Date().toISOString(),
     repo: currentUser.repo,
+    ...meta,
   };
   sendToServer({ type: 'message', message });
   // Also echo to local renderer (server doesn't echo back to sender)

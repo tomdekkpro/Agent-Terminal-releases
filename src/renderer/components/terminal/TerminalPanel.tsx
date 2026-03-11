@@ -180,9 +180,8 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, ski
     let disposed = false;
 
     // Restore saved output from previous session (before live data arrives)
-    // Skip for Claude terminals — claude --resume displays its own conversation history
     const savedBuffer = getAndClearSavedBuffer(terminal.id);
-    if (savedBuffer && !terminal.isClaudeMode) {
+    if (savedBuffer) {
       bufferRef.current.push(savedBuffer);
       bufferRef.current.push('\r\n\x1b[90m--- Session restored ---\x1b[0m\r\n\r\n');
     }
@@ -943,11 +942,16 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, ski
         </div>
       )}
 
-      {/* Terminal container or restore banner */}
+      {/* Terminal container */}
       {terminal.needsRestore ? (
         <RestoreBanner terminal={terminal} />
       ) : (
-        <div ref={containerRef} className="flex-1 bg-[#0f0f23] p-1" />
+        <div className="flex-1 relative">
+          <div ref={containerRef} className="absolute inset-0 bg-[#0f0f23] p-1" />
+          {terminal.needsResume && (
+            <ResumeBanner terminal={terminal} />
+          )}
+        </div>
       )}
     </div>
   );
@@ -1029,6 +1033,51 @@ function RestoreBanner({ terminal }: { terminal: Terminal }) {
         <p className="text-[10px] text-[var(--text-muted)] opacity-60">
           Previous session from last run
         </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Resume Banner (overlay on terminal) ──────────────────────
+
+function ResumeBanner({ terminal }: { terminal: Terminal }) {
+  const resumeTerminalAgent = useTerminalStore((s) => s.resumeTerminalAgent);
+  const updateTerminal = useTerminalStore((s) => s.updateTerminal);
+  const [resuming, setResuming] = useState(false);
+
+  const handleResume = async () => {
+    setResuming(true);
+    await resumeTerminalAgent(terminal.id);
+  };
+
+  const handleDismiss = () => {
+    updateTerminal(terminal.id, { needsResume: false });
+  };
+
+  return (
+    <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-[#0f0f23] via-[#0f0f23]/95 to-transparent pt-8 pb-4 px-4">
+      <div className="flex items-center justify-center gap-3">
+        <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+          <Bot className="w-4 h-4 text-emerald-400" />
+          <span>Agent session available — resume to continue where you left off</span>
+        </div>
+        <button
+          onClick={handleDismiss}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--border)] text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:border-[var(--text-muted)] transition-colors"
+        >
+          Dismiss
+        </button>
+        <button
+          onClick={handleResume}
+          disabled={resuming}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 text-xs font-medium hover:bg-emerald-500/30 transition-colors disabled:opacity-60"
+        >
+          {resuming ? (
+            <><RotateCcw className="w-3.5 h-3.5 animate-spin" /> Resuming...</>
+          ) : (
+            <><Play className="w-3.5 h-3.5" /> Resume Agent</>
+          )}
+        </button>
       </div>
     </div>
   );

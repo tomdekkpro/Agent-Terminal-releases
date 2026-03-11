@@ -1,6 +1,6 @@
 {
   "name": "agent-terminal",
-  "version": "1.9.4",
+  "version": "1.9.5",
   "description": "Agent Terminal - AI-powered terminal with ClickUp integration",
   "author": {
     "name": "tomdekkpro",
@@ -132,6 +132,7 @@
     "@xterm/xterm": "^6.0.0",
     "clsx": "^2.1.0",
     "electron-updater": "^6.8.3",
+    "emoji-picker-react": "^4.18.0",
     "highlight.js": "^11.11.1",
     "lucide-react": "^0.575.0",
     "qrcode": "^1.5.4",

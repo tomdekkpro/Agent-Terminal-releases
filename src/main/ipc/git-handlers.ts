@@ -88,6 +88,11 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
           return { success: true, data: worktreeDir, branch };
         }
 
+        // Prune stale worktree references (e.g. directory deleted but git still tracks it)
+        try {
+          await gitExec('git worktree prune', projectPath, 5000);
+        } catch { /* non-critical */ }
+
         // Add .task-worktrees/ to .gitignore
         ensureGitignore(projectPath, '.task-worktrees/');
 
@@ -96,8 +101,14 @@ export function registerGitHandlers(ipcMain: IpcMain): void {
           await gitExec(`git worktree add "${worktreeDir}" -b "${branch}"`, projectPath);
         } catch {
           // Branch might already exist (previous worktree was removed but branch kept)
+          // Force-delete the old branch first, then try with existing branch
           try {
-            await gitExec(`git worktree add "${worktreeDir}" "${branch}"`, projectPath);
+            await gitExec(`git branch -D "${branch}"`, projectPath, 5000);
+            debugLog('[Git] Deleted stale branch:', branch);
+          } catch { /* branch may not exist, ignore */ }
+
+          try {
+            await gitExec(`git worktree add "${worktreeDir}" -b "${branch}"`, projectPath);
           } catch (err: any) {
             return { success: false, error: err.message || 'Failed to create worktree' };
           }

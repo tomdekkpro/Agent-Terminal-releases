@@ -138,6 +138,7 @@ export interface AppSettings {
   // Team
   teamServerUrl: string;
   teamAutoConnect: boolean;
+  teamAutoStartServer: boolean;
   // Agent providers
   defaultAgentProvider: AgentProviderId;
   agentModels: Partial<Record<AgentProviderId, string>>;
@@ -405,6 +406,14 @@ export interface TeamMessage {
   content: string;
   timestamp: string;
   repo: string;
+  /** If this message is from an AI persona */
+  personaId?: string;
+  personaName?: string;
+  personaColor?: string;
+  /** If this message is a reply to a mention */
+  replyTo?: string;
+  /** Base64 data URL for an attached image */
+  image?: string;
 }
 
 /** Minimal session info broadcast to teammates */
@@ -434,7 +443,9 @@ export type TeamWireMessage =
   | { type: 'session-leave'; sessionId: string; username: string; repo: string }
   | { type: 'session-message'; sessionId: string; message: InsightsMessage; repo: string }
   | { type: 'session-participants'; sessionId: string; participants: string[]; repo: string }
-  | { type: 'session-list'; sessions: SharedSessionInfo[] };
+  | { type: 'session-list'; sessions: SharedSessionInfo[] }
+  // Chat history (sent to late joiners)
+  | { type: 'history'; messages: TeamMessage[] };
 
 // Service Status
 export type ServiceStatusLevel = 'operational' | 'degraded' | 'major' | 'critical' | 'unknown';
@@ -480,6 +491,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   jiraProjectKey: '',
   teamServerUrl: '',
   teamAutoConnect: false,
+  teamAutoStartServer: false,
   defaultModel: 'claude-opus-4-6',
   workingDirectory: '',
   maxTerminals: 12,

@@ -174,7 +174,8 @@ const electronAPI = {
   teamGetRepo: (projectPath: string) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_GET_REPO, projectPath),
   teamConnect: (serverUrl: string, user: any) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_CONNECT, serverUrl, user),
   teamDisconnect: () => ipcRenderer.invoke(IPC_CHANNELS.TEAM_DISCONNECT),
-  teamSendMessage: (content: string) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_SEND_MESSAGE, content),
+  teamSendMessage: (content: string, meta?: { personaId?: string; personaName?: string; personaColor?: string; replyTo?: string; image?: string }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.TEAM_SEND_MESSAGE, content, meta),
   teamSendTyping: () => ipcRenderer.invoke(IPC_CHANNELS.TEAM_SEND_TYPING),
   teamStartServer: (port?: number) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_START_SERVER, port),
   teamStopServer: () => ipcRenderer.invoke(IPC_CHANNELS.TEAM_STOP_SERVER),
@@ -183,6 +184,11 @@ const electronAPI = {
   teamJoinSession: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_JOIN_SESSION, sessionId),
   teamLeaveSession: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_LEAVE_SESSION, sessionId),
   teamSendSessionMessage: (sessionId: string, message: any) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_SEND_SESSION_MESSAGE, sessionId, message),
+  teamTestConnection: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_TEST_CONNECTION, url),
+  teamPersonaReply: (content: string, persona: any, model?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.TEAM_PERSONA_REPLY, content, persona, model),
+  teamLoadHistory: (repo: string) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_LOAD_HISTORY, repo),
+  teamSaveHistory: (repo: string, messages: any[]) => ipcRenderer.invoke(IPC_CHANNELS.TEAM_SAVE_HISTORY, repo, messages),
   onTeamEvent: (callback: (event: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(IPC_CHANNELS.TEAM_EVENT, handler);

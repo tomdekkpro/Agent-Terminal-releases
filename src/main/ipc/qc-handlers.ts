@@ -50,10 +50,21 @@ export function registerQCHandlers(
         const session = await getSession(sessionId);
         if (!session?.qcTask) return { success: false, error: 'No QC task found' };
 
+        // Reset all test cases to pending so re-runs work after completion
+        session.qcTask.testCases = session.qcTask.testCases.map(tc => ({
+          ...tc,
+          status: 'pending' as const,
+          startedAt: undefined,
+          completedAt: undefined,
+          durationMs: undefined,
+          errorMessage: undefined,
+          steps: tc.steps.map(s => ({ ...s, status: 'pending' as const, actual: undefined, screenshot: undefined })),
+        }));
         session.qcTask.status = 'running';
         session.qcTask.startedAt = new Date().toISOString();
         session.qcTask.completedAt = undefined;
         session.qcTask.durationMs = undefined;
+        session.qcTask.summary = undefined;
         await saveSession(session);
 
         const updatedTask = await runAllTests(sessionId, session.qcTask, model, getWindow);
@@ -114,6 +125,21 @@ export function registerQCHandlers(
   // Abort QC execution
   ipcMain.handle(IPC_CHANNELS.QC_ABORT, async (_event, sessionId: string) => {
     abortQC(sessionId);
+
+    // Update task and test case statuses on disk
+    try {
+      const session = await getSession(sessionId);
+      if (session?.qcTask) {
+        session.qcTask.testCases = session.qcTask.testCases.map(tc =>
+          tc.status === 'running' ? { ...tc, status: 'pending' as const } : tc,
+        );
+        session.qcTask.status = 'ready';
+        session.qcTask.updatedAt = new Date().toISOString();
+        await saveSession(session);
+        return { success: true, data: session.qcTask };
+      }
+    } catch { /* non-critical */ }
+
     return { success: true };
   });
 }

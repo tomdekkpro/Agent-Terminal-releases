@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   Play, Square, CheckCircle, XCircle, AlertTriangle, Clock, ChevronDown, ChevronRight,
   RefreshCw, Loader2, Globe, FileText, ShieldCheck, Plus, Trash2, Pencil,
-  Save, X, Image, KeyRound, Eye, EyeOff, Timer, GripVertical,
+  Save, X, Image, KeyRound, Eye, EyeOff, Timer, GripVertical, RotateCcw,
 } from 'lucide-react';
 import type { QCTask, QCTestCase, QCTestStep, QCCredential } from '../../../shared/types';
 import { useSettingsStore } from '../../stores/settings-store';
@@ -871,10 +871,14 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask,
     }
   }, [sessionId, model, onTaskUpdate]);
 
-  const handleAbort = useCallback(() => {
-    window.electronAPI.qcAbort(sessionId);
+  const handleAbort = useCallback(async () => {
+    const result = await window.electronAPI.qcAbort(sessionId);
     setRunningAll(false);
-  }, [sessionId]);
+    setRunningSteps({});
+    if (result?.data) {
+      onTaskUpdate(result.data);
+    }
+  }, [sessionId, onTaskUpdate]);
 
   const handleTestCaseUpdate = useCallback((updatedTc: QCTestCase) => {
     if (!qcTask) return;
@@ -1128,8 +1132,11 @@ export function QCTestPanel({ sessionId, qcTask, model, onTaskUpdate, onNewTask,
                   disabled={total === 0}
                   className="flex-1 flex items-center justify-center gap-2 text-sm px-4 py-2 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
                 >
-                  <Play className="w-3.5 h-3.5" />
-                  Run All Tests ({total})
+                  {qcTask.status === 'completed' ? (
+                    <><RotateCcw className="w-3.5 h-3.5" /> Re-run All Tests ({total})</>
+                  ) : (
+                    <><Play className="w-3.5 h-3.5" /> Run All Tests ({total})</>
+                  )}
                 </button>
               )}
               <button

@@ -108,6 +108,10 @@ export const IPC_CHANNELS = {
   TEAM_JOIN_SESSION: 'team:join-session',
   TEAM_LEAVE_SESSION: 'team:leave-session',
   TEAM_SEND_SESSION_MESSAGE: 'team:send-session-message',
+  TEAM_TEST_CONNECTION: 'team:test-connection',
+  TEAM_PERSONA_REPLY: 'team:persona-reply',
+  TEAM_LOAD_HISTORY: 'team:load-history',
+  TEAM_SAVE_HISTORY: 'team:save-history',
   // QC Testing
   QC_GENERATE_TESTS: 'qc:generate-tests',
   QC_RUN_TESTS: 'qc:run-tests',

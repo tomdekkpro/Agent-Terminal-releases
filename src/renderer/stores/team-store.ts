@@ -21,7 +21,7 @@ interface TeamState {
   // Actions
   connect: (serverUrl: string, projectPath: string) => Promise<void>;
   disconnect: () => Promise<void>;
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (content: string, meta?: { personaId?: string; personaName?: string; personaColor?: string; replyTo?: string; image?: string }) => Promise<void>;
   sendTyping: () => void;
   startServer: (port?: number) => Promise<{ port: number } | null>;
   stopServer: () => Promise<void>;
@@ -39,6 +39,34 @@ interface TeamState {
 
 // Debounce typing indicator cleanup
 const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// Debounced save of chat history to disk
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+function debouncedSave(repo: string, messages: TeamMessage[]): void {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    window.electronAPI.teamSaveHistory(repo, messages).catch(() => {});
+    saveTimer = null;
+  }, 2000);
+}
+
+/** Merge two arrays of messages: dedup by ID, sort by timestamp */
+function mergeMessages(existing: TeamMessage[], incoming: TeamMessage[]): TeamMessage[] {
+  const map = new Map<string, TeamMessage>();
+  for (const m of existing) map.set(m.id, m);
+  for (const m of incoming) {
+    // Incoming (from server) wins, but preserve local image data if server stripped it
+    const prev = map.get(m.id);
+    if (prev && prev.image && prev.image !== '[image]' && (!m.image || m.image === '[image]')) {
+      map.set(m.id, { ...m, image: prev.image });
+    } else {
+      map.set(m.id, m);
+    }
+  }
+  return [...map.values()].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+  );
+}
 
 // Listeners for session messages (insights store subscribes to these)
 type SessionMessageListener = (sessionId: string, message: InsightsMessage) => void;
@@ -95,6 +123,13 @@ export const useTeamStore = create<TeamState>((set, get) => ({
         connectedAt: new Date().toISOString(),
       };
 
+      // Load persisted chat history before connecting
+      let savedMessages: TeamMessage[] = [];
+      try {
+        const histResult = await window.electronAPI.teamLoadHistory(repoResult.data);
+        if (histResult.success && histResult.data) savedMessages = histResult.data;
+      } catch { /* non-critical */ }
+
       await window.electronAPI.teamConnect(serverUrl, user);
       set({
         connected: true,
@@ -102,7 +137,7 @@ export const useTeamStore = create<TeamState>((set, get) => ({
         currentUser: user,
         serverUrl,
         repo: repoResult.data,
-        messages: [],
+        messages: savedMessages,
         sharedSessions: [],
       });
     } catch (err) {
@@ -114,11 +149,26 @@ export const useTeamStore = create<TeamState>((set, get) => ({
   },
 
   disconnect: async () => {
+    const { hosting, repo, messages } = get();
+
+    // Save current messages to disk before clearing
+    if (repo && messages.length > 0) {
+      try {
+        await window.electronAPI.teamSaveHistory(repo, messages);
+      } catch { /* non-critical */ }
+    }
+
     await window.electronAPI.teamDisconnect();
+    if (hosting) {
+      await window.electronAPI.teamStopServer();
+    }
     set({
       connected: false,
+      connecting: false,
+      hosting: false,
       currentUser: null,
       onlineUsers: [],
+      // Keep messages — they're persisted and will be reloaded on next connect
       messages: [],
       typingUsers: [],
       repo: null,
@@ -127,8 +177,8 @@ export const useTeamStore = create<TeamState>((set, get) => ({
     });
   },
 
-  sendMessage: async (content) => {
-    await window.electronAPI.teamSendMessage(content);
+  sendMessage: async (content, meta?) => {
+    await window.electronAPI.teamSendMessage(content, meta);
   },
 
   sendTyping: () => {
@@ -160,12 +210,18 @@ export const useTeamStore = create<TeamState>((set, get) => ({
         set({ onlineUsers: event.users, connected: true });
         break;
 
-      case 'message':
+      case 'message': {
+        // Dedup: skip if we already have this message (e.g., local echo)
+        const existing = get().messages;
+        if (existing.some(m => m.id === event.message.id)) break;
         set((s) => ({
           messages: [...s.messages, event.message],
           typingUsers: s.typingUsers.filter((u) => u !== event.message.from),
         }));
+        const { repo: msgRepo, messages: msgs } = get();
+        if (msgRepo) debouncedSave(msgRepo, msgs);
         break;
+      }
 
       case 'typing': {
         const { username } = event;
@@ -193,11 +249,21 @@ export const useTeamStore = create<TeamState>((set, get) => ({
         set({ error: event.error });
         break;
 
+      case 'history': {
+        // Server sends authoritative history — merge with local (dedup + sort)
+        set((s) => ({
+          messages: mergeMessages(s.messages, event.messages),
+        }));
+        const { repo: histRepo, messages: histMsgs } = get();
+        if (histRepo) debouncedSave(histRepo, histMsgs);
+        break;
+      }
+
       // ─── Session events ──────────────────────────────────
       case 'session-share':
         set((s) => {
-          const existing = s.sharedSessions.filter((ss) => ss.id !== event.session.id);
-          return { sharedSessions: [...existing, event.session] };
+          const existingSessions = s.sharedSessions.filter((ss) => ss.id !== event.session.id);
+          return { sharedSessions: [...existingSessions, event.session] };
         });
         break;
 

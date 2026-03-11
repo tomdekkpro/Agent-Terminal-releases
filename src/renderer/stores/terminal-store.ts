@@ -34,6 +34,8 @@ export interface Terminal {
   pendingTaskPrompt?: string;
   /** True when restored from saved state but PTY not yet created */
   needsRestore?: boolean;
+  /** True when terminal is restored but agent session not yet resumed */
+  needsResume?: boolean;
 }
 
 // Output callback registry
@@ -136,8 +138,10 @@ interface TerminalState {
   stopTimer: (id: string) => TimeTracking | null;
   writeToTerminal: (terminalId: string, data: string) => void;
   restoreState: () => Promise<Terminal[]>;
-  /** Create PTY and resume agent for a single restored terminal */
+  /** Create PTY for a single restored terminal (no agent resume) */
   activateTerminal: (id: string) => Promise<void>;
+  /** Resume the agent session for a restored terminal */
+  resumeTerminalAgent: (id: string) => Promise<void>;
   /** Discard a restored terminal without creating PTY */
   discardTerminal: (id: string) => void;
 }
@@ -478,8 +482,8 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         id: t.id,
         groupId: t.groupId,
         title: t.title,
-        // Mark as exited until user chooses to restore
-        status: 'exited' as TerminalStatus,
+        // Start as idle — PTY will be created automatically
+        status: 'idle' as TerminalStatus,
         cwd: t.cwd || '',
         createdAt: new Date(),
         isClaudeMode: t.isClaudeMode || false,
@@ -494,7 +498,8 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         worktreePath: t.worktreePath,
         worktreeBranch: t.worktreeBranch,
         timeTracking: t.timeTracking,
-        needsRestore: true,
+        // Agent terminals need manual resume; plain terminals are ready immediately
+        needsResume: (t.isClaudeMode || false) && !!t.claudeSessionId,
       }));
 
       set({
@@ -503,6 +508,18 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         activeGroupId: saved.activeGroupId,
         isRestored: true,
       });
+
+      // Auto-create PTY processes for all restored terminals
+      for (const t of restored) {
+        try {
+          await window.electronAPI.createTerminal({
+            id: t.id,
+            cwd: t.cwd || '',
+            cols: 80,
+            rows: 24,
+          });
+        } catch { /* non-critical — terminal will show as exited */ }
+      }
 
       return restored;
     } catch {
@@ -523,34 +540,55 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         rows: 24,
       });
 
-      // Mark as active before resuming agent
       set((state) => ({
         terminals: state.terminals.map((t) =>
-          t.id === id ? { ...t, needsRestore: false, status: terminal.isClaudeMode ? 'claude-active' as TerminalStatus : 'idle' as TerminalStatus } : t
+          t.id === id ? {
+            ...t,
+            needsRestore: false,
+            needsResume: t.isClaudeMode && !!t.claudeSessionId,
+            status: 'idle' as TerminalStatus,
+          } : t
         ),
       }));
-
-      if (terminal.isClaudeMode) {
-        const agentId = terminal.agentProvider || 'claude';
-        const resumeCwd = terminal.claudeCwd || terminal.cwd;
-
-        if (agentId === 'claude') {
-          await window.electronAPI.resumeAgent(terminal.id, 'claude', {
-            sessionId: terminal.claudeSessionId,
-            cwd: resumeCwd,
-            skipPermissions: terminal.skipPermissions,
-          });
-        } else {
-          await window.electronAPI.resumeAgent(terminal.id, agentId, {
-            cwd: terminal.cwd,
-            skipPermissions: terminal.skipPermissions,
-          });
-        }
-      }
     } catch {
       set((state) => ({
         terminals: state.terminals.map((t) =>
           t.id === id ? { ...t, needsRestore: false, status: 'exited' as TerminalStatus } : t
+        ),
+      }));
+    }
+  },
+
+  resumeTerminalAgent: async (id: string) => {
+    const terminal = get().terminals.find((t) => t.id === id);
+    if (!terminal || !terminal.needsResume) return;
+
+    try {
+      set((state) => ({
+        terminals: state.terminals.map((t) =>
+          t.id === id ? { ...t, needsResume: false, status: 'claude-active' as TerminalStatus } : t
+        ),
+      }));
+
+      const agentId = terminal.agentProvider || 'claude';
+      const resumeCwd = terminal.claudeCwd || terminal.cwd;
+
+      if (agentId === 'claude') {
+        await window.electronAPI.resumeAgent(terminal.id, 'claude', {
+          sessionId: terminal.claudeSessionId,
+          cwd: resumeCwd,
+          skipPermissions: terminal.skipPermissions,
+        });
+      } else {
+        await window.electronAPI.resumeAgent(terminal.id, agentId, {
+          cwd: terminal.cwd,
+          skipPermissions: terminal.skipPermissions,
+        });
+      }
+    } catch {
+      set((state) => ({
+        terminals: state.terminals.map((t) =>
+          t.id === id ? { ...t, needsResume: false, status: 'exited' as TerminalStatus } : t
         ),
       }));
     }

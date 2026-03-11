@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Settings, Terminal, CheckSquare, Bot, Palette, Save, RotateCcw, Loader2, CheckCircle, XCircle, Info, RefreshCw, Download, Users, ShieldCheck, Plus, Trash2, Eye, EyeOff } from 'lucide-react';
+import { Settings, Terminal, CheckSquare, Bot, Palette, Save, RotateCcw, Loader2, CheckCircle, XCircle, Info, RefreshCw, Download, Users, ShieldCheck, Plus, Trash2, Eye, EyeOff, Wifi, Server, Square } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settings-store';
+import { useTeamStore } from '../../stores/team-store';
 import type { AppSettings, AgentProviderMeta, QCCredential } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
 import { APP_VERSION } from '../../lib/version';
@@ -831,20 +832,48 @@ export function SettingsView() {
               </p>
 
               <div className="space-y-4">
+                {/* Host Server */}
+                <HostServerControl />
+
+                {/* Relay Server URL */}
                 <div>
                   <label className="block text-sm text-[var(--text-secondary)] mb-1.5">Relay Server URL</label>
-                  <input
-                    type="text"
-                    value={localSettings.teamServerUrl}
-                    onChange={(e) => handleChange('teamServerUrl', e.target.value)}
-                    placeholder="ws://localhost:9877"
-                    className="w-full text-sm bg-[var(--bg-primary)] text-[var(--text-primary)] border border-[var(--border)] rounded-md px-3 py-2 outline-none focus:border-[var(--accent)]"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={localSettings.teamServerUrl}
+                      onChange={(e) => handleChange('teamServerUrl', e.target.value)}
+                      placeholder="ws://localhost:9877"
+                      className="flex-1 text-sm bg-[var(--bg-primary)] text-[var(--text-primary)] border border-[var(--border)] rounded-md px-3 py-2 outline-none focus:border-[var(--accent)]"
+                    />
+                    <TestConnectionButton url={localSettings.teamServerUrl} />
+                  </div>
                   <p className="text-xs text-[var(--text-muted)] mt-1">
-                    Connect to a shared relay server, or click "Host" in the Team panel to run one locally.
+                    The URL teammates enter in Team Chat to join. If you are hosting, share your public IP URL with your team.
                   </p>
                 </div>
 
+                {/* Auto-start relay server */}
+                <div className="flex items-center justify-between py-2">
+                  <div>
+                    <label className="block text-sm text-[var(--text-secondary)]">Auto-start Relay Server</label>
+                    <p className="text-xs text-[var(--text-muted)] mt-0.5">Automatically start the relay server when opening the app</p>
+                  </div>
+                  <button
+                    onClick={() => handleChange('teamAutoStartServer', !localSettings.teamAutoStartServer)}
+                    className={cn(
+                      'relative w-10 h-5 rounded-full transition-colors',
+                      localSettings.teamAutoStartServer ? 'bg-[var(--accent)]' : 'bg-[var(--bg-tertiary)]',
+                    )}
+                  >
+                    <span className={cn(
+                      'absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform',
+                      localSettings.teamAutoStartServer ? 'left-[22px]' : 'left-0.5',
+                    )} />
+                  </button>
+                </div>
+
+                {/* Auto-connect */}
                 <div className="flex items-center justify-between py-2">
                   <div>
                     <label className="block text-sm text-[var(--text-secondary)]">Auto-connect</label>
@@ -871,7 +900,7 @@ export function SettingsView() {
                   <li>Your GitHub identity is detected via <code className="text-[var(--accent)]">gh auth status</code></li>
                   <li>Your project is identified by its <code className="text-[var(--accent)]">git remote origin</code> URL</li>
                   <li>Teammates on the same repo are grouped into a shared chat room</li>
-                  <li>One person can "Host" a local server, or point everyone to a shared URL</li>
+                  <li>One person clicks "Start Server" here (or enables Auto-start) — others just enter the URL and click "Join" in Team Chat</li>
                 </ul>
               </div>
             </div>
@@ -906,6 +935,120 @@ export function SettingsView() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function HostServerControl() {
+  const { hosting, startServer, stopServer } = useTeamStore();
+  const [starting, setStarting] = useState(false);
+
+  const handleToggle = async () => {
+    if (hosting) {
+      await stopServer();
+    } else {
+      setStarting(true);
+      await startServer();
+      setStarting(false);
+    }
+  };
+
+  return (
+    <div className={cn(
+      'flex items-center justify-between p-3 rounded-lg border',
+      hosting ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-[var(--bg-tertiary)] border-[var(--border)]',
+    )}>
+      <div className="flex items-center gap-3">
+        <div className={cn(
+          'w-9 h-9 rounded-lg flex items-center justify-center',
+          hosting ? 'bg-emerald-500/20' : 'bg-[var(--bg-primary)]',
+        )}>
+          <Server className={cn('w-4.5 h-4.5', hosting ? 'text-emerald-400' : 'text-[var(--text-muted)]')} />
+        </div>
+        <div>
+          <p className="text-sm text-[var(--text-primary)] font-medium">
+            {hosting ? 'Server Running' : 'Relay Server'}
+          </p>
+          <p className="text-xs text-[var(--text-muted)]">
+            {hosting ? 'Listening on port 9877 — teammates can connect' : 'Start a relay server on this machine for your team'}
+          </p>
+        </div>
+      </div>
+      <button
+        onClick={handleToggle}
+        disabled={starting}
+        className={cn(
+          'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+          hosting
+            ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+            : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30',
+          starting && 'opacity-60',
+        )}
+      >
+        {starting ? (
+          <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Starting...</>
+        ) : hosting ? (
+          <><Square className="w-3 h-3" /> Stop</>
+        ) : (
+          <><Server className="w-3.5 h-3.5" /> Start Server</>
+        )}
+      </button>
+    </div>
+  );
+}
+
+function TestConnectionButton({ url }: { url: string }) {
+  const [status, setStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [message, setMessage] = useState('');
+
+  const handleTest = async () => {
+    if (!url) {
+      setStatus('error');
+      setMessage('Enter a URL first');
+      return;
+    }
+    setStatus('testing');
+    setMessage('');
+
+    try {
+      const result = await window.electronAPI.teamTestConnection(url);
+      if (result.success) {
+        setStatus('success');
+        setMessage('Connected successfully');
+      } else {
+        setStatus('error');
+        setMessage(result.error || 'Connection failed');
+      }
+    } catch {
+      setStatus('error');
+      setMessage('Connection test failed');
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={handleTest}
+        disabled={status === 'testing'}
+        className={cn(
+          'flex items-center gap-1.5 px-3 py-2 rounded-md text-sm transition-colors whitespace-nowrap',
+          status === 'success' ? 'bg-emerald-500/20 text-emerald-400'
+            : status === 'error' ? 'bg-red-500/20 text-red-400'
+            : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--border)]',
+          status === 'testing' && 'opacity-60',
+        )}
+      >
+        {status === 'testing' ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          : status === 'success' ? <CheckCircle className="w-3.5 h-3.5" />
+          : status === 'error' ? <XCircle className="w-3.5 h-3.5" />
+          : <Wifi className="w-3.5 h-3.5" />}
+        Test
+      </button>
+      {message && (
+        <span className={cn('text-xs', status === 'success' ? 'text-emerald-400' : 'text-red-400')}>
+          {message}
+        </span>
+      )}
     </div>
   );
 }

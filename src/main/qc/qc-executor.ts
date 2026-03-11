@@ -36,6 +36,7 @@ function killProcessTree(child: ChildProcess): void {
 }
 
 const activeProcesses = new Map<string, ChildProcess>();
+const abortedSessions = new Set<string>();
 
 export interface QCEvent {
   type: 'generating' | 'test-start' | 'step-update' | 'test-done' | 'screenshot' | 'all-done' | 'error';
@@ -533,16 +534,38 @@ export async function runAllTests(
   getWindow: () => BrowserWindow | null,
 ): Promise<QCTask> {
   const updatedCases: QCTestCase[] = [];
+  abortedSessions.delete(sessionId);
 
   for (const tc of task.testCases) {
-    if (tc.status === 'passed' || tc.status === 'failed') {
-      updatedCases.push(tc); // Skip already-run tests
-      continue;
+    // Check if abort was requested — stop the loop and mark remaining as pending
+    if (abortedSessions.has(sessionId)) {
+      // Add remaining test cases as-is (still pending)
+      const completedIds = new Set(updatedCases.map(c => c.id));
+      for (const remaining of task.testCases) {
+        if (!completedIds.has(remaining.id)) {
+          updatedCases.push(remaining);
+        }
+      }
+      abortedSessions.delete(sessionId);
+      break;
     }
+
     try {
       const result = await runTestCase(sessionId, task.id, tc, task.targetUrl, task.credentials, model, getWindow);
       updatedCases.push(result);
     } catch (err) {
+      // If aborted mid-test, mark as pending (not error) so it can be re-run
+      if (abortedSessions.has(sessionId)) {
+        updatedCases.push({ ...tc, status: 'pending' });
+        const completedIds = new Set(updatedCases.map(c => c.id));
+        for (const remaining of task.testCases) {
+          if (!completedIds.has(remaining.id)) {
+            updatedCases.push(remaining);
+          }
+        }
+        abortedSessions.delete(sessionId);
+        break;
+      }
       const errAt = new Date().toISOString();
       updatedCases.push({
         ...tc,
@@ -605,6 +628,7 @@ export async function runAllTests(
 }
 
 export function abortQC(sessionId: string): void {
+  abortedSessions.add(sessionId);
   for (const [key, child] of activeProcesses) {
     if (key.startsWith(sessionId)) {
       killProcessTree(child);
