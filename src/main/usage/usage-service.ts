@@ -192,15 +192,28 @@ function parseCredentialJson(json: string): { token: string | null; email: strin
   }
 }
 
+// Cache OAuth credentials to avoid spawning PowerShell on every poll
+let cachedCredentials: { token: string | null; email: string | null } | null = null;
+let credentialsFetchedAt = 0;
+const CREDENTIALS_CACHE_TTL = 5 * 60_000; // 5 minutes
+
 /**
- * Get OAuth credentials from platform-specific secure storage
+ * Get OAuth credentials from platform-specific secure storage (cached)
  */
 function getOAuthCredentials(): { token: string | null; email: string | null } {
-  if (IS_WINDOWS) return getWindowsCredentials();
-  if (IS_MAC) return getMacOSCredentials();
+  const now = Date.now();
+  if (cachedCredentials && now - credentialsFetchedAt < CREDENTIALS_CACHE_TTL) {
+    return cachedCredentials;
+  }
 
-  // Linux: try credentials file
-  return getCredentialsFromFile();
+  let creds: { token: string | null; email: string | null };
+  if (IS_WINDOWS) creds = getWindowsCredentials();
+  else if (IS_MAC) creds = getMacOSCredentials();
+  else creds = getCredentialsFromFile();
+
+  cachedCredentials = creds;
+  credentialsFetchedAt = now;
+  return creds;
 }
 
 /**
@@ -336,12 +349,22 @@ function formatResetTimestamp(isoTimestamp: string): string {
 
 // ─── CLI PTY Usage Fetching (Fallback) ───────────────────────────────────────
 
+// Cache Claude CLI availability check
+let claudeAvailableCache: boolean | null = null;
+let claudeAvailableCacheTime = 0;
+const CLAUDE_AVAILABLE_CACHE_TTL = 5 * 60_000; // 5 minutes
+
 /**
- * Check if Claude CLI is available
+ * Check if Claude CLI is available (cached)
  */
 export async function isClaudeAvailable(): Promise<boolean> {
+  const now = Date.now();
+  if (claudeAvailableCache !== null && now - claudeAvailableCacheTime < CLAUDE_AVAILABLE_CACHE_TTL) {
+    return claudeAvailableCache;
+  }
+
   const checkCmd = IS_WINDOWS ? 'where' : 'which';
-  return new Promise((resolve) => {
+  const result = await new Promise<boolean>((resolve) => {
     const proc = spawn(checkCmd, ['claude'], {
       shell: IS_WINDOWS,
       windowsHide: true,
@@ -353,6 +376,10 @@ export async function isClaudeAvailable(): Promise<boolean> {
     proc.on('close', (code) => { clearTimeout(timeout); resolve(code === 0); });
     proc.on('error', () => { clearTimeout(timeout); resolve(false); });
   });
+
+  claudeAvailableCache = result;
+  claudeAvailableCacheTime = now;
+  return result;
 }
 
 /**

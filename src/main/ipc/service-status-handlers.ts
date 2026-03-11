@@ -17,7 +17,7 @@ import type {
 } from '../../shared/types';
 import { debugError } from '../../shared/utils';
 
-const POLL_INTERVAL = 5 * 60_000; // 5 minutes
+const POLL_INTERVAL = 10 * 60_000; // 10 minutes
 const MIN_FETCH_INTERVAL = 60_000; // 60s cache per provider
 
 let pollingInterval: NodeJS.Timeout | null = null;
@@ -401,6 +401,10 @@ function startPolling(getWindow: () => BrowserWindow | null): void {
   if (pollingInterval) clearInterval(pollingInterval);
 
   pollingInterval = setInterval(async () => {
+    // Skip if window is not focused
+    const win = getWindow();
+    if (!win || win.isDestroyed() || !win.isFocused()) return;
+
     try {
       const summary = await fetchAllStatuses();
       pushToRenderer(getWindow, summary);
