@@ -12,6 +12,7 @@ import { registerGitHandlers } from './ipc/git-handlers';
 import { registerInsightsHandlers, cleanupInsights } from './ipc/insights-handlers';
 import { registerTeamHandlers, cleanupTeam } from './ipc/team-handlers';
 import { registerQCHandlers } from './ipc/qc-handlers';
+import { registerCodeReviewHandlers } from './ipc/code-review-handlers';
 import { cleanupAllQC } from './qc/qc-executor';
 import { initAutoUpdater } from './updater';
 import { IPC_CHANNELS } from '../shared/constants';
@@ -112,6 +113,7 @@ app.whenReady().then(() => {
   registerInsightsHandlers(ipcMain, getWindow);
   registerTeamHandlers(ipcMain, getWindow);
   registerQCHandlers(ipcMain, getWindow);
+  registerCodeReviewHandlers(ipcMain, getWindow);
   registerServiceStatusHandlers(ipcMain, getWindow);
   initAutoUpdater(getWindow);
 

@@ -1026,12 +1026,7 @@ export function TerminalView({ projectId }: TerminalViewProps) {
         rows: 24,
       });
 
-      if (task) {
-        const taskContext = buildTaskPrompt(task);
-        useTerminalStore.getState().updateTerminal(terminal.id, {
-          pendingTaskPrompt: taskContext,
-        });
-      }
+      // Task context is available but not auto-sent — user inputs manually
     },
     [activeProject]
   );
@@ -1062,11 +1057,7 @@ export function TerminalView({ projectId }: TerminalViewProps) {
         }
       } catch { /* non-critical */ }
 
-      // Store task prompt for when the user manually starts an agent
-      const taskContext = buildTaskPrompt(task);
-      useTerminalStore.getState().updateTerminal(terminalId, {
-        pendingTaskPrompt: taskContext,
-      });
+      // Task context is available but not auto-sent — user inputs manually
     },
     []
   );
@@ -1183,14 +1174,6 @@ export function TerminalView({ projectId }: TerminalViewProps) {
       if (skipPermissions) {
         useTerminalStore.getState().updateTerminal(id, { skipPermissions: true });
       }
-      // Send pending task prompt if available
-      const pendingPrompt = terminal.pendingTaskPrompt;
-      if (pendingPrompt) {
-        useTerminalStore.getState().updateTerminal(id, { pendingTaskPrompt: undefined });
-        setTimeout(() => {
-          window.electronAPI.sendTerminalInput(id, pendingPrompt);
-        }, 3000);
-      }
     } else {
       setCliError(result.error || `Failed to start ${agentId}`);
       setTimeout(() => setCliError(null), 8000);
@@ -1219,9 +1202,11 @@ export function TerminalView({ projectId }: TerminalViewProps) {
     }
 
     if (!terminal.isClaudeMode) {
-      // Store skill prompt as pending, then invoke agent
-      useTerminalStore.getState().updateTerminal(terminalId, { pendingTaskPrompt: skill.prompt });
+      // Invoke agent first, then send skill prompt after it starts
       await handleInvokeAgent(terminalId);
+      setTimeout(() => {
+        window.electronAPI.sendTerminalInput(terminalId, skill.prompt + '\n');
+      }, 3000);
     } else {
       // Agent already running — send prompt directly
       window.electronAPI.sendTerminalInput(terminalId, skill.prompt + '\n');
@@ -1856,27 +1841,3 @@ export function TerminalView({ projectId }: TerminalViewProps) {
   );
 }
 
-/** Build a prompt string from a task to send to Claude */
-function buildTaskPrompt(task: TaskManagerTask): string {
-  const providerLabel = task.provider === 'jira' ? 'Jira' : 'ClickUp';
-  const lines: string[] = [];
-  lines.push(`I need you to work on the following task from ${providerLabel}:`);
-  lines.push(``);
-  lines.push(`Task: ${task.name}`);
-  if (task.customId) lines.push(`ID: ${task.customId}`);
-  lines.push(`Status: ${task.status.name}`);
-  if (task.priority) lines.push(`Priority: ${task.priority.name}`);
-  if (task.url) lines.push(`URL: ${task.url}`);
-  if (task.description) {
-    lines.push(``);
-    lines.push(`Description:`);
-    lines.push(task.description.slice(0, 2000));
-  }
-  if (task.tags.length > 0) {
-    lines.push(``);
-    lines.push(`Tags: ${task.tags.map((t) => t.name).join(', ')}`);
-  }
-  lines.push(``);
-  lines.push(`Please review this task and help me implement it.\r`);
-  return lines.join('\n');
-}

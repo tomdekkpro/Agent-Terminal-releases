@@ -210,6 +210,27 @@ const electronAPI = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.QC_EVENT, handler);
   },
 
+  // Task Manager — Tags
+  addTaskTag: (taskId: string, tagName: string) => ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_ADD_TAG, taskId, tagName),
+  removeTaskTag: (taskId: string, tagName: string) => ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_REMOVE_TAG, taskId, tagName),
+
+  // Code Review
+  codeReviewGetTasks: (reviewStatuses?: string[], projectPath?: string) => ipcRenderer.invoke(IPC_CHANNELS.CODE_REVIEW_GET_TASKS, reviewStatuses, projectPath),
+  codeReviewGetPRInfo: (projectPath: string, prNumber: number) => ipcRenderer.invoke(IPC_CHANNELS.CODE_REVIEW_GET_PR_INFO, projectPath, prNumber),
+  codeReviewRun: (projectPath: string, taskId: string, prNumber: number) => ipcRenderer.invoke(IPC_CHANNELS.CODE_REVIEW_RUN, projectPath, taskId, prNumber),
+  codeReviewSubmit: (projectPath: string, taskId: string, prNumber: number, passed: boolean, findings: any[], prTitle: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.CODE_REVIEW_SUBMIT, projectPath, taskId, prNumber, passed, findings, prTitle),
+  codeReviewStop: (taskId: string) => ipcRenderer.invoke(IPC_CHANNELS.CODE_REVIEW_STOP, taskId),
+  codeReviewStopAll: () => ipcRenderer.invoke(IPC_CHANNELS.CODE_REVIEW_STOP_ALL),
+  codeReviewSchedulerStart: () => ipcRenderer.invoke(IPC_CHANNELS.CODE_REVIEW_SCHEDULER_START),
+  codeReviewSchedulerStop: () => ipcRenderer.invoke(IPC_CHANNELS.CODE_REVIEW_SCHEDULER_STOP),
+  codeReviewSchedulerStatus: () => ipcRenderer.invoke(IPC_CHANNELS.CODE_REVIEW_SCHEDULER_STATUS),
+  onCodeReviewEvent: (callback: (event: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.CODE_REVIEW_EVENT, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.CODE_REVIEW_EVENT, handler);
+  },
+
   // File utilities
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
 

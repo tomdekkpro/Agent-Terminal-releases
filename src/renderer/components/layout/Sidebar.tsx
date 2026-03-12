@@ -1,4 +1,4 @@
-import { Terminal, LayoutList, ShieldCheck, Sparkles, Settings } from 'lucide-react';
+import { Terminal, LayoutList, ShieldCheck, Sparkles, GitPullRequestDraft, Settings } from 'lucide-react';
 import type { ViewType } from '../../App';
 import { cn } from '../../../shared/utils';
 import { APP_VERSION } from '../../lib/version';
@@ -13,6 +13,7 @@ const navItems: { id: ViewType; icon: typeof Terminal; label: string; shortcut: 
   { id: 'tasks', icon: LayoutList, label: 'Sessions', shortcut: 'Ctrl+K' },
   { id: 'qc', icon: ShieldCheck, label: 'QC Testing', shortcut: 'Ctrl+Q' },
   { id: 'insights', icon: Sparkles, label: 'Chat', shortcut: 'Ctrl+I' },
+  { id: 'code-review', icon: GitPullRequestDraft, label: 'Code Review', shortcut: 'Ctrl+R' },
   { id: 'settings', icon: Settings, label: 'Settings', shortcut: 'Ctrl+S' },
 ];
 

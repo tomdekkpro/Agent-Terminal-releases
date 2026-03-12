@@ -326,6 +326,46 @@ export class ClickUpProvider implements ITaskManagerProvider {
     }
   }
 
+  async addTag(settings: AppSettings, taskId: string, tagName: string): Promise<ProviderResult<any>> {
+    try {
+      const data = await clickUpFetch(settings.clickupApiKey, `/task/${taskId}/tag/${encodeURIComponent(tagName)}`, {
+        method: 'POST',
+      });
+      return { success: true, data };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to add tag',
+      };
+    }
+  }
+
+  async removeTag(settings: AppSettings, taskId: string, tagName: string): Promise<ProviderResult<any>> {
+    try {
+      const data = await clickUpFetch(settings.clickupApiKey, `/task/${taskId}/tag/${encodeURIComponent(tagName)}`, {
+        method: 'DELETE',
+      });
+      return { success: true, data };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to remove tag',
+      };
+    }
+  }
+
+  async getComments(settings: AppSettings, taskId: string): Promise<ProviderResult<any[]>> {
+    try {
+      const data = await clickUpFetch(settings.clickupApiKey, `/task/${taskId}/comment`);
+      return { success: true, data: data.comments || [] };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch comments',
+      };
+    }
+  }
+
   async getTimeEntries(settings: AppSettings, taskId: string): Promise<ProviderResult<{ totalMs: number; entries: any[] }>> {
     try {
       const teamId = settings.clickupWorkspaceId;

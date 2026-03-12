@@ -99,4 +99,24 @@ export function registerTaskManagerHandlers(ipcMain: IpcMain): void {
       return provider.getTimeEntries(getSettings(), taskId);
     },
   );
+
+  ipcMain.handle(
+    IPC_CHANNELS.TASK_MANAGER_ADD_TAG,
+    async (_event, taskId: string, tagName: string) => {
+      const provider = getActiveProvider();
+      if (!provider) return { success: false, error: 'No task manager configured' };
+      if (!provider.addTag) return { success: false, error: 'Provider does not support tags' };
+      return provider.addTag(getSettings(), taskId, tagName);
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.TASK_MANAGER_REMOVE_TAG,
+    async (_event, taskId: string, tagName: string) => {
+      const provider = getActiveProvider();
+      if (!provider) return { success: false, error: 'No task manager configured' };
+      if (!provider.removeTag) return { success: false, error: 'Provider does not support tags' };
+      return provider.removeTag(getSettings(), taskId, tagName);
+    },
+  );
 }

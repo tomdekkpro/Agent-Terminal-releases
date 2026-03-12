@@ -36,4 +36,10 @@ export interface ITaskManagerProvider {
   ): Promise<ProviderResult<any>>;
 
   getTimeEntries(settings: AppSettings, taskId: string): Promise<ProviderResult<{ totalMs: number; entries: any[] }>>;
+
+  addTag?(settings: AppSettings, taskId: string, tagName: string): Promise<ProviderResult<any>>;
+
+  removeTag?(settings: AppSettings, taskId: string, tagName: string): Promise<ProviderResult<any>>;
+
+  getComments?(settings: AppSettings, taskId: string): Promise<ProviderResult<any[]>>;
 }

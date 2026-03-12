@@ -142,11 +142,6 @@ export function TasksView({ onNavigateToTerminal }: TasksViewProps) {
       if (skipPermissions) {
         useTerminalStore.getState().updateTerminal(id, { skipPermissions: true });
       }
-      const pendingPrompt = terminal.pendingTaskPrompt;
-      if (pendingPrompt) {
-        useTerminalStore.getState().updateTerminal(id, { pendingTaskPrompt: undefined });
-        setTimeout(() => window.electronAPI.sendTerminalInput(id, pendingPrompt), 3000);
-      }
     }
   }, [projects, activeProject]);
 

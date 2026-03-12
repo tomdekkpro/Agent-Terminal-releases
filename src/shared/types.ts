@@ -146,6 +146,12 @@ export interface AppSettings {
   // QC Testing
   qcTestingUrl: string;
   qcTestingCredentials: QCCredential[];
+  // Code Review
+  codeReviewEnabled: boolean;
+  codeReviewIntervalMinutes: number;
+  codeReviewStatuses: string;
+  codeReviewProjectPath: string;
+  codeReviewTagName: string;
   /** @deprecated Use defaultAgentProvider */
   defaultCopilotProvider?: AgentProviderId;
   /** @deprecated Use agentModels.copilot */
@@ -390,6 +396,43 @@ export const DEFAULT_PERSONAS: Persona[] = [
   },
 ];
 
+// ─── Code Review ──────────────────────────────────────────────
+
+export type CodeReviewSeverity = 'critical' | 'major' | 'minor' | 'suggestion';
+export type CodeReviewStatus = 'pending' | 'reviewing' | 'passed' | 'failed' | 'error' | 'skipped';
+
+export interface CodeReviewFinding {
+  severity: CodeReviewSeverity;
+  file: string;
+  line?: number;
+  description: string;
+  suggestion?: string;
+}
+
+export interface CodeReviewItem {
+  taskId: string;
+  taskName: string;
+  taskUrl: string;
+  customId?: string;
+  prNumber?: number;
+  prUrl?: string;
+  prBranch?: string;
+  prTitle?: string;
+  status: CodeReviewStatus;
+  findings: CodeReviewFinding[];
+  reviewedAt?: string;
+  error?: string;
+}
+
+export interface CodeReviewEvent {
+  type: 'progress' | 'finding' | 'done' | 'error';
+  taskId: string;
+  message?: string;
+  finding?: CodeReviewFinding;
+  status?: CodeReviewStatus;
+  findings?: CodeReviewFinding[];
+}
+
 // ─── Team Chat ────────────────────────────────────────────────
 
 export interface TeamUser {
@@ -509,4 +552,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   agentConfig: {},
   qcTestingUrl: '',
   qcTestingCredentials: [],
+  codeReviewEnabled: false,
+  codeReviewIntervalMinutes: 60,
+  codeReviewStatuses: 'ready for review, in review, review',
+  codeReviewProjectPath: '',
+  codeReviewTagName: 'reviewpass',
 };

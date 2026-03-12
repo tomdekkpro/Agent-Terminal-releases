@@ -36,6 +36,8 @@ export const IPC_CHANNELS = {
   TASK_MANAGER_GET_TIME_ENTRIES: 'task-manager:get-time-entries',
   TASK_MANAGER_SEARCH_TASKS: 'task-manager:search-tasks',
   TASK_MANAGER_GET_LISTS: 'task-manager:get-lists',
+  TASK_MANAGER_ADD_TAG: 'task-manager:add-tag',
+  TASK_MANAGER_REMOVE_TAG: 'task-manager:remove-tag',
   // Settings
   SETTINGS_GET: 'settings:get',
   SETTINGS_SET: 'settings:set',
@@ -118,6 +120,18 @@ export const IPC_CHANNELS = {
   QC_RUN_SINGLE_TEST: 'qc:run-single-test',
   QC_ABORT: 'qc:abort',
   QC_EVENT: 'qc:event',
+  // Code Review
+  CODE_REVIEW_GET_TASKS: 'code-review:get-tasks',
+  CODE_REVIEW_GET_PR_INFO: 'code-review:get-pr-info',
+  CODE_REVIEW_RUN: 'code-review:run',
+  CODE_REVIEW_RUN_ALL: 'code-review:run-all',
+  CODE_REVIEW_SUBMIT: 'code-review:submit',
+  CODE_REVIEW_EVENT: 'code-review:event',
+  CODE_REVIEW_SCHEDULER_START: 'code-review:scheduler-start',
+  CODE_REVIEW_SCHEDULER_STOP: 'code-review:scheduler-stop',
+  CODE_REVIEW_STOP: 'code-review:stop',
+  CODE_REVIEW_STOP_ALL: 'code-review:stop-all',
+  CODE_REVIEW_SCHEDULER_STATUS: 'code-review:scheduler-status',
   // App
   OPEN_EXTERNAL: 'app:open-external',
   OPEN_PATH: 'app:open-path',

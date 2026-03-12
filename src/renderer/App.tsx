@@ -10,10 +10,11 @@ import { useSettingsStore } from './stores/settings-store';
 import { useTerminalStore } from './stores/terminal-store';
 import { InsightsView } from './components/insights';
 import { QCView } from './components/qc';
+import { CodeReviewView } from './components/code-review';
 import { UpdateNotification } from './components/updates/UpdateNotification';
 import { TeamPanel } from './components/team/TeamPanel';
 
-export type ViewType = 'terminals' | 'tasks' | 'qc' | 'insights' | 'settings';
+export type ViewType = 'terminals' | 'tasks' | 'qc' | 'insights' | 'code-review' | 'settings';
 
 export default function App() {
   const [activeView, setActiveView] = useState<ViewType>('terminals');
@@ -46,6 +47,7 @@ export default function App() {
       k: 'tasks',
       q: 'qc',
       i: 'insights',
+      r: 'code-review',
       s: 'settings',
     };
     const handler = (e: KeyboardEvent) => {
@@ -105,6 +107,7 @@ export default function App() {
         {activeView === 'tasks' && <TasksView onNavigateToTerminal={() => setActiveView('terminals')} />}
         {activeView === 'qc' && <QCView />}
         {activeView === 'insights' && <InsightsView />}
+        {activeView === 'code-review' && <CodeReviewView />}
         {activeView === 'settings' && <SettingsView />}
       </main>
       <UpdateNotification />
