@@ -136,7 +136,7 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', async () => {
+app.on('before-quit', () => {
   trackShutdown();
   cleanupInsights();
   cleanupTeam();
@@ -144,8 +144,15 @@ app.on('before-quit', async () => {
   stopUsagePolling();
   stopServiceStatusPolling();
   if (terminalManager) {
-    // Save output buffers before killing terminals so they can be restored
+    // Save output buffers while terminals are still alive
+    // (terminals are killed later in will-quit, after renderer has saved state)
     saveOutputBuffers(terminalManager.getOutputBuffers());
-    await terminalManager.killAll();
+  }
+});
+
+// Kill terminals AFTER all windows are closed (after beforeunload has saved state)
+app.on('will-quit', () => {
+  if (terminalManager) {
+    terminalManager.killAll();
   }
 });

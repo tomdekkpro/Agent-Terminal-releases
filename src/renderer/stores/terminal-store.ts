@@ -105,7 +105,31 @@ export function flushTerminalStateSync(): void {
   }
   const state = useTerminalStore.getState();
   if (!state.isRestored) return;
-  window.electronAPI?.saveTerminalStateSync?.(buildSaveableState(state));
+  // Save ALL terminals during app close — don't filter by status.
+  // Terminals may have been marked 'exited' by a race with before-quit killAll
+  // or by agent completion; we still want to restore them on next launch.
+  const saveable = state.terminals.map((t) => ({
+    id: t.id,
+    groupId: t.groupId,
+    title: t.title,
+    cwd: t.cwd,
+    projectId: t.projectId,
+    isClaudeMode: t.isClaudeMode,
+    claudeSessionId: t.claudeSessionId,
+    claudeCwd: t.claudeCwd,
+    agentProvider: t.agentProvider,
+    skipPermissions: t.skipPermissions,
+    task: t.task,
+    worktreePath: t.worktreePath,
+    worktreeBranch: t.worktreeBranch,
+    timeTracking: t.timeTracking,
+  }));
+  if (saveable.length === 0) return; // nothing to save — don't overwrite good state
+  window.electronAPI?.saveTerminalStateSync?.({
+    terminals: saveable,
+    activeTerminalId: state.activeTerminalId,
+    activeGroupId: state.activeGroupId,
+  });
 }
 
 interface TerminalState {
@@ -482,11 +506,10 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         id: t.id,
         groupId: t.groupId,
         title: t.title,
-        // Start as idle — PTY will be created automatically
         status: 'idle' as TerminalStatus,
         cwd: t.cwd || '',
         createdAt: new Date(),
-        isClaudeMode: t.isClaudeMode || false,
+        isClaudeMode: false,
         // Migrate legacy copilotProvider → agentProvider
         agentProvider: t.agentProvider || t.copilotProvider || 'claude',
         claudeSessionId: t.claudeSessionId,
@@ -498,8 +521,9 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         worktreePath: t.worktreePath,
         worktreeBranch: t.worktreeBranch,
         timeTracking: t.timeTracking,
-        // Agent terminals need manual resume; plain terminals are ready immediately
-        needsResume: (t.isClaudeMode || false) && !!t.claudeSessionId,
+        // Only agent terminals with a session need the restore banner;
+        // plain terminals auto-create PTY immediately.
+        needsRestore: !!t.claudeSessionId,
       }));
 
       set({
@@ -509,8 +533,9 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         isRestored: true,
       });
 
-      // Auto-create PTY processes for all restored terminals
+      // Auto-create PTYs for plain terminals (no restore banner needed)
       for (const t of restored) {
+        if (t.needsRestore) continue;
         try {
           await window.electronAPI.createTerminal({
             id: t.id,
@@ -518,7 +543,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
             cols: 80,
             rows: 24,
           });
-        } catch { /* non-critical — terminal will show as exited */ }
+        } catch { /* non-critical */ }
       }
 
       return restored;
@@ -540,16 +565,40 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         rows: 24,
       });
 
+      const hasSession = !!terminal.claudeSessionId;
+
       set((state) => ({
         terminals: state.terminals.map((t) =>
           t.id === id ? {
             ...t,
             needsRestore: false,
-            needsResume: t.isClaudeMode && !!t.claudeSessionId,
-            status: 'idle' as TerminalStatus,
+            needsResume: false,
+            // If there's a session to resume, go straight to claude-active
+            isClaudeMode: hasSession,
+            status: hasSession ? 'claude-active' as TerminalStatus : 'idle' as TerminalStatus,
           } : t
         ),
       }));
+
+      // Auto-resume agent session if available
+      if (hasSession) {
+        const agentId = terminal.agentProvider || 'claude';
+        const resumeCwd = terminal.claudeCwd || terminal.cwd;
+        try {
+          await window.electronAPI.resumeAgent(terminal.id, agentId, {
+            sessionId: terminal.claudeSessionId,
+            cwd: resumeCwd,
+            skipPermissions: terminal.skipPermissions,
+          });
+        } catch {
+          // Resume failed — fall back to idle terminal with Start button
+          set((state) => ({
+            terminals: state.terminals.map((t) =>
+              t.id === id ? { ...t, isClaudeMode: false, status: 'idle' as TerminalStatus } : t
+            ),
+          }));
+        }
+      }
     } catch {
       set((state) => ({
         terminals: state.terminals.map((t) =>

@@ -372,7 +372,7 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, ski
       if (fitAddonRef.current) { fitAddonRef.current.dispose(); fitAddonRef.current = null; }
       if (xtermRef.current) { xtermRef.current.dispose(); xtermRef.current = null; }
     };
-  }, [terminal.id]);
+  }, [terminal.id, terminal.needsRestore]);
 
   // Fit on visibility change
   useEffect(() => {
@@ -983,7 +983,7 @@ function RestoreBanner({ terminal }: { terminal: Terminal }) {
         {/* Icon */}
         <div className="flex justify-center">
           <div className="w-14 h-14 rounded-2xl bg-[var(--accent)]/10 flex items-center justify-center">
-            {terminal.isClaudeMode ? (
+            {terminal.claudeSessionId ? (
               <Bot className="w-7 h-7 text-emerald-400" />
             ) : (
               <TerminalIcon className="w-7 h-7 text-blue-400" />
@@ -1002,10 +1002,11 @@ function RestoreBanner({ terminal }: { terminal: Terminal }) {
               {terminal.cwd}
             </p>
           )}
-          {terminal.isClaudeMode && (
+          {terminal.claudeSessionId && (
             <p className="text-[11px] text-emerald-400/70 mt-1">
               Agent: {terminal.agentProvider}
-              {terminal.claudeSessionId && ' • Session available'}
+              {terminal.skipPermissions && ' • YOLO'}
+              {' • Session will resume'}
             </p>
           )}
         </div>
