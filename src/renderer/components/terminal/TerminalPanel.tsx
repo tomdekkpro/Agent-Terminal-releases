@@ -74,6 +74,7 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, ski
   const webglAddonRef = useRef<WebglAddon | null>(null);
   const readyRef = useRef(false);
   const bufferRef = useRef<string[]>([]);
+  const needsResumRef = useRef(terminal.needsResume ?? false);
 
   // Drag and drop state
   const [isDragOver, setIsDragOver] = useState(false);
@@ -100,6 +101,11 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, ski
   const stopTimer = useTerminalStore((s) => s.stopTimer);
   const tracking = terminal.timeTracking;
   const isTimerRunning = !!tracking?.startedAt;
+
+  // Keep needsResume ref in sync so xterm closure can read it
+  useEffect(() => {
+    needsResumRef.current = terminal.needsResume ?? false;
+  }, [terminal.needsResume]);
 
   // Live elapsed display — tick every second while running
   const [now, setNow] = useState(Date.now());
@@ -297,8 +303,9 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, ski
         });
       });
 
-      // Handle input
+      // Handle input — block while restore/resume banner is pending
       xterm.onData((data) => {
+        if (needsResumRef.current) return;
         window.electronAPI.sendTerminalInput(terminal.id, data);
       });
 
@@ -307,8 +314,9 @@ export function TerminalPanel({ terminal, isActive, isSplit, agentProviders, ski
         window.electronAPI.resizeTerminal(terminal.id, cols, rows);
       });
 
-      // Copy/paste handling
+      // Copy/paste handling + block input while resume banner is shown
       xterm.attachCustomKeyEventHandler((event) => {
+        if (needsResumRef.current) return false; // block all keys while pending
         const isMod = event.metaKey || event.ctrlKey;
 
         if (event.key === 'Enter' && event.shiftKey && !isMod && event.type === 'keydown') {
@@ -1055,7 +1063,10 @@ function ResumeBanner({ terminal }: { terminal: Terminal }) {
   };
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-[#0f0f23] via-[#0f0f23]/95 to-transparent pt-8 pb-4 px-4">
+    <div className="absolute inset-0 z-10 flex flex-col justify-end">
+      {/* Transparent click-blocker covers the terminal area */}
+      <div className="flex-1" />
+      <div className="bg-gradient-to-t from-[#0f0f23] via-[#0f0f23]/95 to-transparent pt-8 pb-4 px-4">
       <div className="flex items-center justify-center gap-3">
         <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
           <Bot className="w-4 h-4 text-emerald-400" />
@@ -1078,6 +1089,7 @@ function ResumeBanner({ terminal }: { terminal: Terminal }) {
             <><Play className="w-3.5 h-3.5" /> Resume Agent</>
           )}
         </button>
+      </div>
       </div>
     </div>
   );

@@ -16,7 +16,7 @@ let pollingInterval: NodeJS.Timeout | null = null;
 let cachedUsage: UsageSnapshot | null = null;
 let lastFetchTime = 0;
 let isPollingInProgress = false;
-const MIN_FETCH_INTERVAL = 60_000; // Minimum 60s between fetches
+const MIN_FETCH_INTERVAL = 30_000; // Minimum 30s between fetches
 
 export function registerUsageHandlers(
   ipcMain: IpcMain,
@@ -75,7 +75,7 @@ export function registerUsageHandlers(
     }
   });
 
-  // Start background polling (every 3 minutes — credential reads are expensive on Windows)
+  // Start background polling (every 1 minute — credentials are cached so this is lightweight)
   startPolling(getWindow);
 }
 
@@ -88,7 +88,7 @@ function startPolling(getWindow: () => BrowserWindow | null): void {
 
     // Skip if window is not focused (no need to poll in background)
     const win = getWindow();
-    if (!win || win.isDestroyed() || !win.isFocused()) return;
+    if (!win || win.isDestroyed() || win.isMinimized()) return;
 
     isPollingInProgress = true;
 
@@ -109,7 +109,7 @@ function startPolling(getWindow: () => BrowserWindow | null): void {
     } finally {
       isPollingInProgress = false;
     }
-  }, 180_000); // 3 minutes
+  }, 60_000); // 1 minute
 }
 
 export function stopUsagePolling(): void {

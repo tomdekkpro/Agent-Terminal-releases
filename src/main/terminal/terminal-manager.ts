@@ -121,7 +121,26 @@ export class TerminalManager {
 
     try {
       this.terminals.delete(id);
-      PtyManager.killPty(terminal);
+
+      // If an agent (Claude CLI, etc.) is active, send graceful exit before killing
+      if (terminal.isAgentMode && !terminal.hasExited) {
+        try {
+          // Send /exit followed by Ctrl+C as graceful shutdown signals
+          PtyManager.writeToPty(terminal, '/exit\r');
+          PtyManager.writeToPty(terminal, '\x03'); // Ctrl+C
+        } catch { /* non-critical — force kill follows */ }
+
+        // Give the agent a brief moment to exit gracefully, then force kill
+        await new Promise<void>((resolve) => {
+          setTimeout(() => {
+            PtyManager.killPty(terminal);
+            resolve();
+          }, 500);
+        });
+      } else {
+        PtyManager.killPty(terminal);
+      }
+
       track('terminal_closed', { terminalCount: this.terminals.size });
       return { success: true };
     } catch (error) {
@@ -134,10 +153,27 @@ export class TerminalManager {
 
   async killAll(): Promise<void> {
     PtyManager.setShuttingDown(true);
+
+    // Send graceful exit to all active agents first
     this.terminals.forEach((terminal) => {
-      PtyManager.killPty(terminal);
+      if (terminal.isAgentMode && !terminal.hasExited) {
+        try {
+          PtyManager.writeToPty(terminal, '/exit\r');
+          PtyManager.writeToPty(terminal, '\x03');
+        } catch { /* non-critical */ }
+      }
     });
-    this.terminals.clear();
+
+    // Brief grace period, then force kill everything
+    await new Promise<void>((resolve) => {
+      setTimeout(() => {
+        this.terminals.forEach((terminal) => {
+          PtyManager.killPty(terminal);
+        });
+        this.terminals.clear();
+        resolve();
+      }, 300);
+    });
   }
 
   write(id: string, data: string): void {

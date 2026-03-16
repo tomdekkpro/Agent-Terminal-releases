@@ -1,5 +1,6 @@
 import * as pty from '@lydell/node-pty';
 import * as os from 'os';
+import { execFile } from 'child_process';
 import type { TerminalProcess, WindowGetter } from './types';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { debugLog, debugError } from '../../shared/utils';
@@ -188,9 +189,27 @@ export function resizePty(terminal: TerminalProcess, cols: number, rows: number)
 
 export function killPty(terminal: TerminalProcess): void {
   if (terminal.hasExited) return;
-  try {
-    terminal.pty.kill();
-  } catch {
-    // Swallow kill errors
+
+  const pid = terminal.pty.pid;
+
+  // On Windows, kill the entire process tree so child processes (Claude CLI, etc.) are cleaned up
+  if (isWindows() && pid) {
+    try {
+      // taskkill /T kills the process tree, /F forces termination
+      execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true }, (err) => {
+        if (err) {
+          debugLog('[PtyManager] taskkill tree failed, falling back to pty.kill():', err.message);
+          try { terminal.pty.kill(); } catch { /* swallow */ }
+        }
+      });
+    } catch {
+      try { terminal.pty.kill(); } catch { /* swallow */ }
+    }
+  } else {
+    try {
+      terminal.pty.kill();
+    } catch {
+      // Swallow kill errors
+    }
   }
 }
