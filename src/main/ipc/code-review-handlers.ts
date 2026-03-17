@@ -1,5 +1,7 @@
 import type { BrowserWindow, IpcMain } from 'electron';
 import { exec, spawn } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { CodeReviewEvent, CodeReviewFinding, CodeReviewItem } from '../../shared/types';
 import { getSettings } from './settings-handlers';
@@ -259,6 +261,55 @@ async function fetchTaskContext(taskId: string): Promise<{ description: string; 
   return { description, comments };
 }
 
+/** Try multiple strategies to extract JSON from Claude's response */
+function parseReviewJSON(stdout: string): { passed: boolean; findings: CodeReviewFinding[] } {
+  const raw = stdout.trim();
+
+  // Strategy 1: Try parsing the entire output as JSON
+  try {
+    const result = JSON.parse(raw);
+    if (typeof result === 'object' && result !== null && 'passed' in result) {
+      return { passed: !!result.passed, findings: Array.isArray(result.findings) ? result.findings : [] };
+    }
+  } catch { /* continue to next strategy */ }
+
+  // Strategy 2: Extract JSON from code fences (```json ... ``` or ``` ... ```)
+  const fenceMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  if (fenceMatch) {
+    try {
+      const result = JSON.parse(fenceMatch[1].trim());
+      if (typeof result === 'object' && result !== null && 'passed' in result) {
+        return { passed: !!result.passed, findings: Array.isArray(result.findings) ? result.findings : [] };
+      }
+    } catch { /* continue to next strategy */ }
+  }
+
+  // Strategy 3: Find the last complete JSON object (greedy match can grab wrong braces)
+  const jsonMatches = raw.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g);
+  if (jsonMatches) {
+    // Try each match, preferring ones that have "passed" key
+    for (const match of jsonMatches) {
+      try {
+        const result = JSON.parse(match);
+        if (typeof result === 'object' && result !== null && 'passed' in result) {
+          return { passed: !!result.passed, findings: Array.isArray(result.findings) ? result.findings : [] };
+        }
+      } catch { /* try next match */ }
+    }
+  }
+
+  // Strategy 4: Original greedy regex as fallback
+  const greedyMatch = raw.match(/\{[\s\S]*\}/);
+  if (greedyMatch) {
+    const result = JSON.parse(greedyMatch[0]);
+    if (typeof result === 'object' && result !== null && 'passed' in result) {
+      return { passed: !!result.passed, findings: Array.isArray(result.findings) ? result.findings : [] };
+    }
+  }
+
+  throw new Error('No valid review JSON found in response');
+}
+
 async function runAIReview(
   diff: string,
   prTitle: string,
@@ -299,46 +350,83 @@ async function runAIReview(
     }
   }
 
-  const prompt = `You are a senior code reviewer. You must review the Pull Request diff AND verify the implementation actually solves the task/bug described.
-${taskSection}
-PR Title: ${prTitle}
+  // Read REVIEW.md from the project if it exists
+  let reviewGuidelines = '';
+  if (projectPath) {
+    try {
+      const reviewMdPath = path.join(projectPath, 'REVIEW.md');
+      const content = await fs.promises.readFile(reviewMdPath, 'utf-8');
+      if (content.trim()) {
+        const trimmed = content.length > 3000
+          ? content.substring(0, 3000) + '\n...[truncated]'
+          : content;
+        reviewGuidelines = `\n--- PROJECT REVIEW GUIDELINES (from REVIEW.md) ---\n${trimmed}\n--- END REVIEW GUIDELINES ---\n`;
+      }
+    } catch { /* REVIEW.md not found — that's fine */ }
+  }
+
+  const prompt = `You are a code review agent. Your ONLY output must be a JSON object. Do not write any other text.
+
+Analyze this Pull Request for real bugs and issues. You act as a fleet of specialized reviewers — examine the changes from multiple angles: correctness, security, performance, and error handling. For each potential issue, verify it against the actual code behavior before reporting. Only report issues you are confident are real problems.
+${taskSection}${reviewGuidelines}
+## Pull Request
+Title: ${prTitle}
 Files changed: ${files.join(', ')}
 
-DIFF:
-\`\`\`
+## Diff
+\`\`\`diff
 ${truncatedDiff}
 \`\`\`
 
-Review the code for:
-1. **Correctness**: Does the code actually fix the bug or implement the feature described in the task? If the task describes a specific problem, verify the root cause is addressed — not just symptoms.
-2. **Completeness**: Are there edge cases from the task description that the code doesn't handle? Is the fix partial or complete?
-3. **Bugs and logic errors**: New bugs introduced by this change.
-4. **Security vulnerabilities**: XSS, injection, auth bypass, data leaks.
-5. **Performance problems**: N+1 queries, unnecessary loops, missing indexes.
-6. **Missing error handling**: At system boundaries (API calls, DB queries, external services).
+## Review Checklist
 
-If the implementation is WRONG or does NOT correctly solve the described task/bug:
-- Mark severity as "critical" or "major"
-- Explain WHY the current approach is wrong
-- Provide a SPECIFIC correct solution with code example in the suggestion field
+### 1. Correctness & Task Verification
+- Does the code actually fix the bug or implement the feature described in the task?
+- Is the root cause addressed, not just symptoms?
+- Are there edge cases from the task description that aren't handled?
 
-IMPORTANT: Only report REAL issues you are confident about. Do NOT report style preferences, minor naming suggestions, or speculative issues.
+### 2. Logic Errors & Regressions
+- New bugs introduced by this change
+- Broken control flow, off-by-one errors, null/undefined access
+- Race conditions, state management issues
+- Verify each suspected bug by tracing the actual code path before reporting
 
-Respond ONLY with valid JSON in this exact format (no markdown, no code fences):
-{
-  "passed": true/false,
-  "findings": [
-    {
-      "severity": "critical|major|minor|suggestion",
-      "file": "path/to/file.ts",
-      "line": 42,
-      "description": "What the issue is and why it's wrong",
-      "suggestion": "The correct solution with code example if applicable"
-    }
-  ]
-}
+### 3. Security Vulnerabilities
+- XSS, injection, auth bypass, data leaks
+- Unsafe deserialization, path traversal, SSRF
+- Secrets or credentials in code
 
-If the code correctly solves the task with no significant issues, respond with: {"passed": true, "findings": []}`;
+### 4. Performance
+- N+1 queries, unnecessary loops, missing indexes
+- Memory leaks, unbounded growth, missing cleanup
+- Blocking operations in async contexts
+
+### 5. Error Handling (at system boundaries only)
+- Unhandled promise rejections or exceptions at API/DB/external service boundaries
+- Silent failures that hide bugs
+- Do NOT flag missing error handling in internal code paths
+
+## Severity Guide
+- **critical**: Will break production, cause data loss, or create a security vulnerability. Must fix before merge.
+- **major**: Significant bug or logic error that will cause incorrect behavior. Should fix before merge.
+- **minor**: Real issue but low impact — edge case mishandled, suboptimal approach. Worth noting.
+- **suggestion**: Improvement opportunity — not a bug, but would make the code better.
+
+## Rules
+- ONLY report issues you are CONFIDENT about. When in doubt, leave it out.
+- Do NOT report: style preferences, naming opinions, missing comments/docs, formatting, or speculative issues.
+- Each finding must reference a SPECIFIC file and line from the diff.
+- For critical/major issues, explain WHY the code is wrong and provide a concrete fix in the suggestion field.
+- If the code correctly solves the task with no real issues, pass the review.
+
+## Output Format
+Respond with ONLY this JSON object — no text before or after:
+
+{"passed": false, "findings": [{"severity": "critical", "file": "src/example.ts", "line": 42, "description": "What is wrong and why", "suggestion": "How to fix it"}]}
+
+If no issues found:
+
+{"passed": true, "findings": []}`;
 
   return new Promise((resolve, reject) => {
     // Use stdin piping instead of -p flag to avoid Windows command line length limits
@@ -393,16 +481,9 @@ If the code correctly solves the task with no significant issues, respond with: 
       }
 
       try {
-        let jsonStr = stdout.trim();
-        const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-        if (jsonMatch) jsonStr = jsonMatch[0];
-
-        const result = JSON.parse(jsonStr);
-        resolve({
-          passed: !!result.passed,
-          findings: Array.isArray(result.findings) ? result.findings : [],
-        });
-      } catch {
+        const parsed = parseReviewJSON(stdout);
+        resolve(parsed);
+      } catch (parseErr: unknown) {
         debugError('[CodeReview] Failed to parse AI response:', stdout.substring(0, 500));
         resolve({
           passed: false,

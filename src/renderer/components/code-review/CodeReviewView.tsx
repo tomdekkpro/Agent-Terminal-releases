@@ -37,6 +37,34 @@ const INTERVAL_OPTIONS = [
   { value: 1440, label: 'Every 24 hours' },
 ];
 
+/** Render text that may contain inline `code` or ```code blocks``` */
+function RichText({ text, className }: { text: string; className?: string }) {
+  // Split on fenced code blocks (```...```) and inline code (`...`)
+  const parts = text.split(/(```[\s\S]*?```|`[^`]+`)/g);
+  return (
+    <span className={className}>
+      {parts.map((part, i) => {
+        if (part.startsWith('```') && part.endsWith('```')) {
+          const code = part.slice(3, -3).replace(/^\w*\n/, ''); // strip language hint
+          return (
+            <pre key={i} className="mt-1.5 mb-1 p-2 rounded bg-[var(--bg-tertiary)] overflow-x-auto">
+              <code className="text-xs text-[var(--text-primary)] font-mono whitespace-pre">{code}</code>
+            </pre>
+          );
+        }
+        if (part.startsWith('`') && part.endsWith('`')) {
+          return (
+            <code key={i} className="text-xs bg-[var(--bg-tertiary)] px-1 py-0.5 rounded font-mono">
+              {part.slice(1, -1)}
+            </code>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </span>
+  );
+}
+
 function FindingCard({ finding }: { finding: CodeReviewFinding }) {
   const config = SEVERITY_CONFIG[finding.severity];
   const Icon = config.icon;
@@ -52,11 +80,14 @@ function FindingCard({ finding }: { finding: CodeReviewFinding }) {
               {finding.file}{finding.line ? `:${finding.line}` : ''}
             </code>
           </div>
-          <p className="text-sm text-[var(--text-primary)] leading-relaxed">{finding.description}</p>
+          <RichText text={finding.description} className="text-sm text-[var(--text-primary)] leading-relaxed" />
           {finding.suggestion && (
-            <div className="mt-2 flex items-start gap-1.5">
-              <Lightbulb className="w-3.5 h-3.5 mt-0.5 text-blue-400 shrink-0" />
-              <p className="text-xs text-[var(--text-secondary)] leading-relaxed">{finding.suggestion}</p>
+            <div className="mt-2 p-2 rounded-md bg-[var(--bg-tertiary)] border border-[var(--border)]">
+              <div className="flex items-center gap-1.5 mb-1">
+                <Lightbulb className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                <span className="text-xs font-medium text-blue-400">Suggested Fix</span>
+              </div>
+              <RichText text={finding.suggestion} className="text-xs text-[var(--text-secondary)] leading-relaxed" />
             </div>
           )}
         </div>
