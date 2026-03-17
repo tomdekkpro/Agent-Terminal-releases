@@ -9,11 +9,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Dekkpro/Agent-Terminal/releases/latest">
-    <img src="https://img.shields.io/github/v/release/Dekkpro/Agent-Terminal?style=flat-square" alt="Latest Release" />
+  <a href="https://github.com/tomdekkpro/Agent-Terminal/releases/latest">
+    <img src="https://img.shields.io/github/v/release/tomdekkpro/Agent-Terminal?style=flat-square" alt="Latest Release" />
   </a>
-  <a href="https://github.com/Dekkpro/Agent-Terminal/releases/latest">
-    <img src="https://img.shields.io/github/downloads/Dekkpro/Agent-Terminal/total?style=flat-square" alt="Downloads" />
+  <a href="https://github.com/tomdekkpro/Agent-Terminal/releases/latest">
+    <img src="https://img.shields.io/github/downloads/tomdekkpro/Agent-Terminal/total?style=flat-square" alt="Downloads" />
   </a>
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square" alt="Platform" />
 </p>
