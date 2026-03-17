@@ -18,6 +18,7 @@
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square" alt="Platform" />
 </p>
 
+<img width="1182" height="795" alt="image" src="https://github.com/user-attachments/assets/84d0bbde-9ce2-4bac-884e-d97c78cfb30a" />
 ---
 
 ## Features
