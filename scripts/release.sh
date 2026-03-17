@@ -28,14 +28,12 @@ echo "New version: $NEW_VERSION"
 # Update version in UI files (NEW_VERSION has v prefix, e.g. v1.0.3)
 NEW_VER=${NEW_VERSION#v}
 
-sed -i "s/v${CURRENT}/v${NEW_VER}/" src/renderer/components/layout/Sidebar.tsx 2>/dev/null || \
-  sed -i '' "s/v${CURRENT}/v${NEW_VER}/" src/renderer/components/layout/Sidebar.tsx
-
-sed -i "s/Version ${CURRENT}/Version ${NEW_VER}/" src/renderer/components/settings/SettingsView.tsx 2>/dev/null || \
-  sed -i '' "s/Version ${CURRENT}/Version ${NEW_VER}/" src/renderer/components/settings/SettingsView.tsx
+# Update centralized version constant
+sed -i "s/APP_VERSION = '${CURRENT}'/APP_VERSION = '${NEW_VER}'/" src/renderer/lib/version.ts 2>/dev/null || \
+  sed -i '' "s/APP_VERSION = '${CURRENT}'/APP_VERSION = '${NEW_VER}'/" src/renderer/lib/version.ts
 
 # Commit and tag
-git add package.json package-lock.json src/renderer/components/layout/Sidebar.tsx src/renderer/components/settings/SettingsView.tsx
+git add package.json package-lock.json src/renderer/lib/version.ts
 git commit -m "Release ${NEW_VERSION}"
 git tag "${NEW_VERSION}"
 
@@ -46,3 +44,4 @@ echo "To publish the release, push the tag:"
 echo "  git push origin Develop --tags"
 echo ""
 echo "This will trigger GitHub Actions to build for Windows, macOS, and Linux."
+echo "Releases are published to: https://github.com/tomdekkpro/Agent-Terminal-releases"
