@@ -19,7 +19,7 @@ jobs:
           draft: false
           prerelease: false
           token: ${{ secrets.RELEASE_TOKEN }}
-          repository: tomdekkpro/Agent-Terminal-releases
+          repository: tomdekkpro/Agent-Terminal
 
   release:
     needs: create-release
