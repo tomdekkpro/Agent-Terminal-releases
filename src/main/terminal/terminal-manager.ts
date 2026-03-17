@@ -267,9 +267,10 @@ export class TerminalManager {
     terminal.agentCwd = dir;
     terminal.claudeCwd = dir;
 
-    const { cdCmd, clearCmd, separator } = buildShellCommand(terminal.shellType, dir);
+    const { cdCmd, separator } = buildShellCommand(terminal.shellType, dir);
     const agentCmd = provider.buildResumeCommand(options);
-    const command = `${cdCmd}${separator}${clearCmd}${separator}${agentCmd}\r`;
+    // Skip clear command on resume so restored session history remains visible
+    const command = `${cdCmd}${separator}${agentCmd}\r`;
     PtyManager.writeToPty(terminal, command);
 
     const win = this.getWindow();
