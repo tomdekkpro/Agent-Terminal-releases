@@ -59,10 +59,12 @@ export function unregisterOutputCallback(terminalId: string): void {
   xtermCallbacks.delete(terminalId);
 }
 
-// Build saveable state snapshot
+// Build saveable state snapshot — only persist terminals that have an active
+// agent session (claude, copilot, etc.).  Plain shell terminals don't need
+// history saving or restoration; they start fresh on next launch.
 function buildSaveableState(state: TerminalState) {
   const saveable = state.terminals
-    .filter((t) => t.status !== 'exited' || t.needsRestore)
+    .filter((t) => !!t.claudeSessionId || t.isClaudeMode)
     .map((t) => ({
       id: t.id,
       groupId: t.groupId,
@@ -105,25 +107,26 @@ export function flushTerminalStateSync(): void {
   }
   const state = useTerminalStore.getState();
   if (!state.isRestored) return;
-  // Save ALL terminals during app close — don't filter by status.
-  // Terminals may have been marked 'exited' by a race with before-quit killAll
-  // or by agent completion; we still want to restore them on next launch.
-  const saveable = state.terminals.map((t) => ({
-    id: t.id,
-    groupId: t.groupId,
-    title: t.title,
-    cwd: t.cwd,
-    projectId: t.projectId,
-    isClaudeMode: t.isClaudeMode,
-    claudeSessionId: t.claudeSessionId,
-    claudeCwd: t.claudeCwd,
-    agentProvider: t.agentProvider,
-    skipPermissions: t.skipPermissions,
-    task: t.task,
-    worktreePath: t.worktreePath,
-    worktreeBranch: t.worktreeBranch,
-    timeTracking: t.timeTracking,
-  }));
+  // Only save terminals that were using an agent provider (have a session or
+  // are in agent mode).  Plain shell terminals start fresh on next launch.
+  const saveable = state.terminals
+    .filter((t) => !!t.claudeSessionId || t.isClaudeMode)
+    .map((t) => ({
+      id: t.id,
+      groupId: t.groupId,
+      title: t.title,
+      cwd: t.cwd,
+      projectId: t.projectId,
+      isClaudeMode: t.isClaudeMode,
+      claudeSessionId: t.claudeSessionId,
+      claudeCwd: t.claudeCwd,
+      agentProvider: t.agentProvider,
+      skipPermissions: t.skipPermissions,
+      task: t.task,
+      worktreePath: t.worktreePath,
+      worktreeBranch: t.worktreeBranch,
+      timeTracking: t.timeTracking,
+    }));
   if (saveable.length === 0) return; // nothing to save — don't overwrite good state
   window.electronAPI?.saveTerminalStateSync?.({
     terminals: saveable,
@@ -502,29 +505,31 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         }
       } catch { /* non-critical — terminals restore without history */ }
 
-      const restored: Terminal[] = saved.terminals.map((t: any) => ({
-        id: t.id,
-        groupId: t.groupId,
-        title: t.title,
-        status: 'idle' as TerminalStatus,
-        cwd: t.cwd || '',
-        createdAt: new Date(),
-        isClaudeMode: false,
-        // Migrate legacy copilotProvider → agentProvider
-        agentProvider: t.agentProvider || t.copilotProvider || 'claude',
-        claudeSessionId: t.claudeSessionId,
-        claudeCwd: t.claudeCwd,
-        skipPermissions: t.skipPermissions || false,
-        projectId: t.projectId,
-        // Support both legacy clickUpTask and new task field
-        task: t.task || (t.clickUpTask ? { ...t.clickUpTask, provider: 'clickup' as const } : undefined),
-        worktreePath: t.worktreePath,
-        worktreeBranch: t.worktreeBranch,
-        timeTracking: t.timeTracking,
-        // Only agent terminals with a session need the restore banner;
-        // plain terminals auto-create PTY immediately.
-        needsRestore: !!t.claudeSessionId,
-      }));
+      // Only agent terminals (with a session) are persisted, so all restored
+      // terminals get the restore banner — plain terminals start fresh.
+      const restored: Terminal[] = saved.terminals
+        .filter((t: any) => !!t.claudeSessionId)
+        .map((t: any) => ({
+          id: t.id,
+          groupId: t.groupId,
+          title: t.title,
+          status: 'idle' as TerminalStatus,
+          cwd: t.cwd || '',
+          createdAt: new Date(),
+          isClaudeMode: false,
+          // Migrate legacy copilotProvider → agentProvider
+          agentProvider: t.agentProvider || t.copilotProvider || 'claude',
+          claudeSessionId: t.claudeSessionId,
+          claudeCwd: t.claudeCwd,
+          skipPermissions: t.skipPermissions || false,
+          projectId: t.projectId,
+          // Support both legacy clickUpTask and new task field
+          task: t.task || (t.clickUpTask ? { ...t.clickUpTask, provider: 'clickup' as const } : undefined),
+          worktreePath: t.worktreePath,
+          worktreeBranch: t.worktreeBranch,
+          timeTracking: t.timeTracking,
+          needsRestore: true,
+        }));
 
       set({
         terminals: restored,
@@ -532,19 +537,6 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         activeGroupId: saved.activeGroupId,
         isRestored: true,
       });
-
-      // Auto-create PTYs for plain terminals (no restore banner needed)
-      for (const t of restored) {
-        if (t.needsRestore) continue;
-        try {
-          await window.electronAPI.createTerminal({
-            id: t.id,
-            cwd: t.cwd || '',
-            cols: 80,
-            rows: 24,
-          });
-        } catch { /* non-critical */ }
-      }
 
       return restored;
     } catch {

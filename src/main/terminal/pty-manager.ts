@@ -82,7 +82,10 @@ export function setupPtyHandlers(
 
   ptyProcess.onData((data) => {
     if (isShuttingDown || terminal.hasExited) return;
-    terminal.outputBuffer = (terminal.outputBuffer + data).slice(-100000);
+    // Only accumulate output buffer for agent terminals (for session restore)
+    if (terminal.isAgentMode || terminal.agentSessionId) {
+      terminal.outputBuffer = (terminal.outputBuffer + data).slice(-100000);
+    }
 
     try {
       onDataCallback(terminal, data);

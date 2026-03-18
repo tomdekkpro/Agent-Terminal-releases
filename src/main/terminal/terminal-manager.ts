@@ -356,7 +356,8 @@ export class TerminalManager {
   getOutputBuffers(): Record<string, string> {
     const buffers: Record<string, string> = {};
     this.terminals.forEach((terminal, id) => {
-      if (terminal.outputBuffer) {
+      // Only save output buffers for agent terminals — plain shells start fresh
+      if (terminal.outputBuffer && (terminal.agentSessionId || terminal.isAgentMode)) {
         buffers[id] = terminal.outputBuffer;
       }
     });
