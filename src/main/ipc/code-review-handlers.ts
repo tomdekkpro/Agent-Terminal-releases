@@ -737,14 +737,14 @@ export function registerCodeReviewHandlers(
   // ─── Task fetching ───────────────────────────────────────────
   ipcMain.handle(
     IPC_CHANNELS.CODE_REVIEW_GET_TASKS,
-    async (_event, reviewStatuses?: string[], projectPath?: string) => {
+    async (_event, reviewStatuses?: string[], projectPath?: string, listId?: string) => {
       try {
         const settings = getSettings();
         if (settings.taskManagerProvider !== 'clickup') {
           return { success: false, error: 'Code Review requires ClickUp integration. Configure it in Settings.' };
         }
 
-        const targetListId = settings.clickupListId;
+        const targetListId = listId || settings.clickupListId;
         if (!targetListId) return { success: false, error: 'No ClickUp list configured' };
 
         const statuses = reviewStatuses || ['ready for review', 'in review', 'review'];

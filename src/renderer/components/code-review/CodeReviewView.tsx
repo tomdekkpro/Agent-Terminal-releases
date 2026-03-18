@@ -1,13 +1,13 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   GitPullRequestDraft, RefreshCw, Play, CheckCircle2, XCircle,
   AlertTriangle, Loader2, ExternalLink, ChevronDown, ChevronRight,
-  FolderOpen, Lightbulb, Bug, ShieldAlert, Info, Clock, Timer, Square,
+  FolderOpen, Lightbulb, Bug, ShieldAlert, Info, Clock, Timer, Square, List,
 } from 'lucide-react';
 import { useCodeReviewStore } from '../../stores/code-review-store';
 import { useProjectStore } from '../../stores/project-store';
 import { useSettingsStore } from '../../stores/settings-store';
-import type { CodeReviewItem, CodeReviewFinding, CodeReviewSeverity } from '../../../shared/types';
+import type { CodeReviewItem, CodeReviewFinding, CodeReviewSeverity, TaskManagerList } from '../../../shared/types';
 import { cn } from '../../../shared/utils';
 
 const SEVERITY_CONFIG: Record<CodeReviewSeverity, { icon: typeof Bug; color: string; bg: string; label: string }> = {
@@ -447,6 +447,49 @@ export function CodeReviewView() {
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
   const [customStatuses, setCustomStatuses] = useState('ready for review, in review, review');
 
+  // List dropdown state
+  const [lists, setLists] = useState<TaskManagerList[]>([]);
+  const [selectedListId, setSelectedListId] = useState<string>('');
+  const [showListDropdown, setShowListDropdown] = useState(false);
+  const listDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Group lists by space for the dropdown
+  const listsBySpace = lists.reduce<Record<string, TaskManagerList[]>>((acc, list) => {
+    const space = list.space || 'Lists';
+    if (!acc[space]) acc[space] = [];
+    acc[space].push(list);
+    return acc;
+  }, {});
+
+  const selectedList = lists.find((l) => l.id === selectedListId);
+
+  // Close list dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (listDropdownRef.current && !listDropdownRef.current.contains(e.target as Node)) {
+        setShowListDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // Fetch lists on mount
+  useEffect(() => {
+    if (taskManagerProvider === 'none') return;
+    window.electronAPI.getTaskManagerLists().then((result: any) => {
+      if (result.success && result.data) {
+        setLists(result.data);
+        if (result.data.length > 0) {
+          const settings = useSettingsStore.getState().settings;
+          const defaultId = settings.clickupListId || result.data[0].id;
+          const exists = result.data.some((l: TaskManagerList) => l.id === defaultId);
+          setSelectedListId(exists ? defaultId : result.data[0].id);
+        }
+      }
+    });
+  }, [taskManagerProvider]);
+
   useEffect(() => {
     if (!selectedProjectPath && activeProjectId) {
       const proj = projects.find((p) => p.id === activeProjectId);
@@ -462,18 +505,18 @@ export function CodeReviewView() {
     return () => { unsub?.(); };
   }, []);
 
-  // Auto-load tasks when the view is opened and a project is selected
+  // Auto-load tasks when the view is opened and a project + list are selected
   useEffect(() => {
-    if (selectedProjectPath && taskManagerProvider !== 'none' && items.length === 0 && !loading) {
+    if (selectedProjectPath && selectedListId && taskManagerProvider !== 'none' && items.length === 0 && !loading) {
       const statuses = customStatuses.split(',').map((s) => s.trim()).filter(Boolean);
-      loadTasks(statuses, selectedProjectPath);
+      loadTasks(statuses, selectedProjectPath, selectedListId);
     }
-  }, [selectedProjectPath, taskManagerProvider]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedProjectPath, selectedListId, taskManagerProvider]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLoadTasks = useCallback(() => {
     const statuses = customStatuses.split(',').map((s) => s.trim()).filter(Boolean);
-    loadTasks(statuses, selectedProjectPath || undefined);
-  }, [customStatuses, selectedProjectPath, loadTasks]);
+    loadTasks(statuses, selectedProjectPath || undefined, selectedListId || undefined);
+  }, [customStatuses, selectedProjectPath, selectedListId, loadTasks]);
 
   const handleReview = useCallback((taskId: string, prNumber: number) => {
     if (!selectedProjectPath) return;
@@ -574,7 +617,8 @@ export function CodeReviewView() {
         </div>
 
         {/* Manual controls row */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Project selector */}
           <div className="flex items-center gap-2">
             <FolderOpen className="w-4 h-4 text-[var(--text-muted)]" />
             <select
@@ -589,12 +633,61 @@ export function CodeReviewView() {
             </select>
           </div>
 
-          <div className="flex-1">
+          {/* List selector dropdown */}
+          {lists.length > 0 && (
+            <div className="relative" ref={listDropdownRef}>
+              <button
+                onClick={() => setShowListDropdown(!showListDropdown)}
+                className="flex items-center gap-2 px-3 py-1.5 bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-lg text-sm text-[var(--text-primary)] hover:border-[var(--accent)] transition-colors min-w-[160px]"
+              >
+                <List className="w-4 h-4 text-[var(--text-muted)] shrink-0" />
+                <span className="truncate max-w-[200px]">
+                  {selectedList ? selectedList.name : 'Select list...'}
+                </span>
+                <ChevronDown className={cn('w-3.5 h-3.5 text-[var(--text-muted)] shrink-0 transition-transform ml-auto', showListDropdown && 'rotate-180')} />
+              </button>
+
+              {showListDropdown && (
+                <div className="absolute z-50 top-full left-0 mt-1 min-w-[240px] max-h-64 overflow-y-auto bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-xl">
+                  {Object.entries(listsBySpace).map(([space, spaceLists]) => (
+                    <div key={space}>
+                      {Object.keys(listsBySpace).length > 1 && (
+                        <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-[var(--text-muted)] bg-[var(--bg-secondary)] sticky top-0">
+                          {space}
+                        </div>
+                      )}
+                      {spaceLists.map((list) => (
+                        <button
+                          key={list.id}
+                          onClick={() => {
+                            setSelectedListId(list.id);
+                            setShowListDropdown(false);
+                          }}
+                          className={cn(
+                            'w-full text-left px-3 py-2 text-sm transition-colors hover:bg-[var(--bg-tertiary)]',
+                            list.id === selectedListId && 'bg-[var(--accent)]/10 text-[var(--accent)]',
+                          )}
+                        >
+                          <span>{list.name}</span>
+                          {list.folder && (
+                            <span className="text-[10px] text-[var(--text-muted)] ml-2">{list.folder}</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Status filter */}
+          <div className="flex-1 min-w-[180px]">
             <input
               type="text"
               value={customStatuses}
               onChange={(e) => setCustomStatuses(e.target.value)}
-              placeholder="Task statuses to fetch (comma-separated)"
+              placeholder="Task statuses (comma-separated)"
               className="w-full text-sm bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border)] rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-[var(--accent)] placeholder:text-[var(--text-muted)]"
             />
           </div>
@@ -602,7 +695,7 @@ export function CodeReviewView() {
           <button
             onClick={handleLoadTasks}
             disabled={loading}
-            className="px-3 py-1.5 rounded-lg text-sm bg-[var(--accent)] text-white hover:opacity-90 transition-opacity"
+            className="px-3 py-1.5 rounded-lg text-sm bg-[var(--accent)] text-white hover:opacity-90 transition-opacity shrink-0"
           >
             Load Tasks
           </button>

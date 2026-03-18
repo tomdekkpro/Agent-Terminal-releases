@@ -215,7 +215,7 @@ const electronAPI = {
   removeTaskTag: (taskId: string, tagName: string) => ipcRenderer.invoke(IPC_CHANNELS.TASK_MANAGER_REMOVE_TAG, taskId, tagName),
 
   // Code Review
-  codeReviewGetTasks: (reviewStatuses?: string[], projectPath?: string) => ipcRenderer.invoke(IPC_CHANNELS.CODE_REVIEW_GET_TASKS, reviewStatuses, projectPath),
+  codeReviewGetTasks: (reviewStatuses?: string[], projectPath?: string, listId?: string) => ipcRenderer.invoke(IPC_CHANNELS.CODE_REVIEW_GET_TASKS, reviewStatuses, projectPath, listId),
   codeReviewGetPRInfo: (projectPath: string, prNumber: number) => ipcRenderer.invoke(IPC_CHANNELS.CODE_REVIEW_GET_PR_INFO, projectPath, prNumber),
   codeReviewRun: (projectPath: string, taskId: string, prNumber: number) => ipcRenderer.invoke(IPC_CHANNELS.CODE_REVIEW_RUN, projectPath, taskId, prNumber),
   codeReviewSubmit: (projectPath: string, taskId: string, prNumber: number, passed: boolean, findings: any[], prTitle: string) =>
