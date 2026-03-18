@@ -59,12 +59,20 @@ export function unregisterOutputCallback(terminalId: string): void {
   xtermCallbacks.delete(terminalId);
 }
 
-// Build saveable state snapshot — only persist terminals that have an active
-// agent session (claude, copilot, etc.).  Plain shell terminals don't need
-// history saving or restoration; they start fresh on next launch.
+// Build saveable state snapshot — persist terminals that have an active agent
+// session AND any split-mates in the same group so the layout is preserved.
+// Plain shell terminals in non-agent groups are still excluded.
 function buildSaveableState(state: TerminalState) {
+  // Collect groupIds that contain at least one agent terminal
+  const agentGroupIds = new Set<string>();
+  for (const t of state.terminals) {
+    if (t.claudeSessionId || t.isClaudeMode) {
+      agentGroupIds.add(t.groupId);
+    }
+  }
+
   const saveable = state.terminals
-    .filter((t) => !!t.claudeSessionId || t.isClaudeMode)
+    .filter((t) => agentGroupIds.has(t.groupId))
     .map((t) => ({
       id: t.id,
       groupId: t.groupId,
@@ -505,10 +513,9 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         }
       } catch { /* non-critical — terminals restore without history */ }
 
-      // Only agent terminals (with a session) are persisted, so all restored
-      // terminals get the restore banner — plain terminals start fresh.
+      // Restore all saved terminals (agent terminals + their split-mates).
+      // All get needsRestore so the RestoreBanner handles activation.
       const restored: Terminal[] = saved.terminals
-        .filter((t: any) => !!t.claudeSessionId)
         .map((t: any) => ({
           id: t.id,
           groupId: t.groupId,
