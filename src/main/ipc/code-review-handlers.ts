@@ -201,17 +201,19 @@ async function fetchPRInfo(projectPath: string, prNumber: number): Promise<{
   url: string;
   branch: string;
   state: string;
+  mergeable: string;
   diff: string;
   additions: number;
   deletions: number;
   files: string[];
 }> {
   const infoJson = await ghExec(
-    `gh pr view ${prNumber} --json title,url,headRefName,additions,deletions,files,state`,
+    `gh pr view ${prNumber} --json title,url,headRefName,additions,deletions,files,state,mergeable`,
     projectPath,
   );
   const info = JSON.parse(infoJson);
   const state = (info.state || '').toUpperCase();
+  const mergeable = (info.mergeable || '').toUpperCase();
 
   // Only fetch diff for open PRs
   let diff = '';
@@ -224,6 +226,7 @@ async function fetchPRInfo(projectPath: string, prNumber: number): Promise<{
     url: info.url,
     branch: info.headRefName,
     state,
+    mergeable,
     diff,
     additions: info.additions || 0,
     deletions: info.deletions || 0,
@@ -624,6 +627,26 @@ async function runAutoReviewCycle(getWindow: () => BrowserWindow | null): Promis
           continue;
         }
 
+        // Fail immediately if PR has merge conflicts
+        if (prInfo.mergeable === 'CONFLICTING') {
+          debugLog(`[CodeReview] Scheduler: task ${task.id} — PR #${prNumber} has merge conflicts`);
+          const conflictFinding: CodeReviewFinding = {
+            severity: 'critical',
+            file: 'PR',
+            description: 'This Pull Request has merge conflicts and cannot be merged. Please resolve the conflicts before requesting a review.',
+          };
+          // Post conflict comment on ClickUp
+          await clickUpProvider.postComment(settings, task.id, `## ❌ Code Review Failed — Merge Conflict\n\n**PR:** #${prNumber} — ${prInfo.title}\n\n🔴 **Critical**: This PR has merge conflicts and cannot be merged. Please resolve the conflicts and request a new review.\n\n---\n_Automated review by Agent Terminal_`);
+          // Change task status to "review failed"
+          try {
+            await clickUpProvider.updateStatus(settings, task.id, 'review failed');
+          } catch (statusErr) {
+            debugError('[CodeReview] Failed to update task status:', statusErr);
+          }
+          sendReviewEvent(getWindow, { type: 'done', taskId: task.id, status: 'failed', findings: [conflictFinding] });
+          continue;
+        }
+
         sendReviewEvent(getWindow, { type: 'progress', taskId: task.id, message: `Reviewing PR #${prNumber} (${prInfo.files.length} files, ${prInfo.additions}+ / ${prInfo.deletions}-)...` });
 
         // Fetch task context for informed review
@@ -813,6 +836,27 @@ export function registerCodeReviewHandlers(
           const msg = `PR #${prNumber} is ${prInfo.state.toLowerCase()}, skipped.`;
           sendReviewEvent(getWindow, { type: 'done', taskId, status: 'skipped', message: msg });
           return { success: true, data: { passed: false, findings: [], prTitle: prInfo.title, prUrl: prInfo.url, prBranch: prInfo.branch, skipped: true } };
+        }
+
+        // Fail immediately if PR has merge conflicts
+        if (prInfo.mergeable === 'CONFLICTING') {
+          const conflictFinding: CodeReviewFinding = {
+            severity: 'critical',
+            file: 'PR',
+            description: 'This Pull Request has merge conflicts and cannot be merged. Please resolve the conflicts before requesting a review.',
+          };
+          sendReviewEvent(getWindow, { type: 'finding', taskId, finding: conflictFinding });
+          sendReviewEvent(getWindow, { type: 'done', taskId, status: 'failed', findings: [conflictFinding] });
+          return {
+            success: true,
+            data: {
+              passed: false,
+              findings: [conflictFinding],
+              prTitle: prInfo.title,
+              prUrl: prInfo.url,
+              prBranch: prInfo.branch,
+            },
+          };
         }
 
         sendReviewEvent(getWindow, { type: 'progress', taskId, message: `Reviewing ${prInfo.files.length} files (${prInfo.additions}+ / ${prInfo.deletions}-)...` });
