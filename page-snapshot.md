@@ -1,0 +1,22 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - img "Dekkpro Solutions As" [ref=e8]
+        - heading "Welcome" [level=1] [ref=e9]
+        - paragraph [ref=e11]: Log in to Dekkpro Solutions As to continue to Dekkpro 2.0_Wheelpro.
+      - generic [ref=e13]:
+        - generic [ref=e15]:
+          - generic [ref=e17]:
+            - generic [ref=e18]: Username or email address *
+            - textbox "Username or email address" [ref=e19]: tom@wheelpro.no
+          - generic [ref=e21]:
+            - generic [ref=e22]: Password *
+            - textbox "Password" [active] [ref=e23]: TestPassword123!
+            - switch "Show password" [ref=e24] [cursor=pointer]
+        - paragraph [ref=e25]:
+          - link "Forgot password?" [ref=e26] [cursor=pointer]:
+            - /url: /u/login/password-reset-start/Username-Password-Authentication?state=hKFo2SBXaEFZSEsxcFE3QkZNaUZxVUduWkRDcTZVU2hEOE9YMaFur3VuaXZlcnNhbC1sb2dpbqN0aWTZIEhvaGUwbHZqRVVvNzZoVUdPMUI2LTVKY0pxaUgxNmh6o2NpZNkgNENFMjNxNk1zcEF6TTdQWEVVSHFZYzRCWTVvUHd4TGs
+        - button "Continue" [ref=e28] [cursor=pointer]
+    - link "Link to the Auth0 website" [ref=e29] [cursor=pointer]:
+      - /url: https://auth0.com/?utm_source=lock&utm_campaign=badge&utm_medium=widget
