@@ -52,6 +52,19 @@ Get the latest release for your platform:
 | Linux (AppImage) | [Agent-Terminal.AppImage](https://github.com/Dekkpro/Agent-Terminal/releases/latest) |
 | Linux (Debian) | [agent-terminal.deb](https://github.com/Dekkpro/Agent-Terminal/releases/latest) |
 
+### macOS Installation Note
+
+The app is not code-signed with an Apple Developer certificate. macOS Gatekeeper may block it on first launch. To open:
+
+1. Open the `.dmg` and drag **Agent Terminal** to **Applications**
+2. Open **Terminal** and run:
+   ```bash
+   xattr -cr /Applications/Agent\ Terminal.app
+   ```
+3. Launch the app normally
+
+Alternatively: right-click the app → **Open** → click **Open** in the dialog.
+
 ## Keyboard Shortcuts
 
 | Action | Shortcut |

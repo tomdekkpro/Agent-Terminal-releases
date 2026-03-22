@@ -1,6 +1,6 @@
 {
   "name": "agent-terminal",
-  "version": "1.10.6",
+  "version": "1.10.7",
   "description": "Agent Terminal - AI-powered terminal with ClickUp integration",
   "author": {
     "name": "tomdekkpro",
@@ -80,8 +80,11 @@
       ],
       "icon": "resources/icon-512.png",
       "category": "public.app-category.developer-tools",
-      "hardenedRuntime": true,
-      "gatekeeperAssess": false
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "dmg": {
       "contents": [
