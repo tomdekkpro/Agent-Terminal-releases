@@ -22,7 +22,7 @@ import * as pty from '@lydell/node-pty';
 import type { UsageSnapshot } from '../../shared/types';
 import { debugLog } from '../../shared/utils';
 
-const TIMEOUT = 45000; // 45 seconds
+const TIMEOUT = 25000; // 25 seconds
 const IS_WINDOWS = os.platform() === 'win32';
 const IS_MAC = os.platform() === 'darwin';
 
@@ -220,6 +220,15 @@ function getOAuthCredentials(): { token: string | null; email: string | null } {
  * Fetch usage data via Anthropic OAuth API (primary method)
  * Uses: GET https://api.anthropic.com/api/oauth/usage
  */
+/** Thrown when the API returns 429 — includes retry delay from the header */
+class RateLimitError extends Error {
+  retryAfterMs: number;
+  constructor(retryAfterMs: number) {
+    super('RATE_LIMITED');
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
 async function fetchUsageViaAPI(): Promise<UsageSnapshot | null> {
   const { token } = getOAuthCredentials();
   if (!token) {
@@ -229,7 +238,7 @@ async function fetchUsageViaAPI(): Promise<UsageSnapshot | null> {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     const response = await fetch('https://api.anthropic.com/api/oauth/usage', {
       method: 'GET',
@@ -242,6 +251,14 @@ async function fetchUsageViaAPI(): Promise<UsageSnapshot | null> {
       },
     }).finally(() => clearTimeout(timeoutId));
 
+    if (response.status === 429) {
+      // Parse Retry-After header (seconds) — default to 60s
+      const retryAfter = parseInt(response.headers.get('retry-after') || '', 10);
+      const retryMs = (retryAfter > 0 ? retryAfter : 60) * 1000;
+      debugLog(`[UsageService] API rate limited (429), retry after ${retryMs / 1000}s`);
+      throw new RateLimitError(retryMs);
+    }
+
     if (!response.ok) {
       debugLog(`[UsageService] API returned ${response.status}: ${response.statusText}`);
       return null;
@@ -250,6 +267,7 @@ async function fetchUsageViaAPI(): Promise<UsageSnapshot | null> {
     const data = await response.json();
     return parseAPIResponse(data);
   } catch (err) {
+    if (err instanceof RateLimitError) throw err;
     debugLog('[UsageService] API fetch failed:', err instanceof Error ? err.message : String(err));
     return null;
   }
@@ -488,7 +506,8 @@ async function fetchUsageViaCLI(): Promise<UsageSnapshot> {
     let hasApprovedTrust = false;
     let hasSeenTrustPrompt = false;
 
-    const cwd = process.cwd();
+    // Use home directory — avoids trust prompts for the Electron app install dir
+    const cwd = os.homedir();
     const shell = IS_WINDOWS ? 'cmd.exe' : '/bin/sh';
     const args = IS_WINDOWS
       ? ['/c', 'claude', '--add-dir', cwd]
@@ -523,6 +542,8 @@ async function fetchUsageViaCLI(): Promise<UsageSnapshot> {
       return;
     }
 
+    debugLog('[UsageService] CLI spawned, cwd:', cwd);
+
     const killPty = () => {
       try {
         if (IS_WINDOWS) ptyProcess.kill();
@@ -533,6 +554,11 @@ async function fetchUsageViaCLI(): Promise<UsageSnapshot> {
     const timeout = setTimeout(() => {
       if (settled) return;
       settled = true;
+      // eslint-disable-next-line no-control-regex
+      const cleanOutput = output.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '');
+      debugLog('[UsageService] CLI timed out. hasSentCommand:', hasSentCommand,
+        'hasSeenUsageData:', hasSeenUsageData, 'hasSeenTrustPrompt:', hasSeenTrustPrompt,
+        'output tail:', cleanOutput.slice(-500));
       killPty();
       if (output.includes('Current session') || output.includes('% left')) {
         resolve(parseUsageOutput(output));
@@ -580,29 +606,38 @@ async function fetchUsageViaCLI(): Promise<UsageSnapshot> {
         setTimeout(() => {
           if (!settled && ptyProcess) {
             ptyProcess.write('\x1b');
-            setTimeout(() => { if (!settled) killPty(); }, 2000);
+            setTimeout(() => { if (!settled) killPty(); }, 1000);
           }
-        }, 3000);
+        }, 1500);
       }
 
-      // Handle trust prompt
+      // Handle trust prompt — auto-approve and also try 'y' key
       if (
         !hasApprovedTrust &&
         (clean.includes('Do you want to work in this folder?') ||
          clean.includes('Ready to code here') ||
-         clean.includes('permission to work with your files'))
+         clean.includes('permission to work with your files') ||
+         clean.includes('Trust this folder') ||
+         clean.includes('trust this project'))
       ) {
         hasApprovedTrust = true;
         hasSeenTrustPrompt = true;
+        debugLog('[UsageService] Trust prompt detected, approving');
         setTimeout(() => {
-          if (!settled && ptyProcess) ptyProcess.write('\r');
-        }, 1000);
+          if (!settled && ptyProcess) {
+            ptyProcess.write('y');
+            setTimeout(() => {
+              if (!settled && ptyProcess) ptyProcess.write('\r');
+            }, 300);
+          }
+        }, 500);
       }
 
       // Detect REPL ready and send /usage
       const isReady =
         clean.includes('❯') ||
         clean.includes('? for shortcuts') ||
+        clean.includes('>') ||
         (clean.includes('Welcome back') && clean.includes('Claude')) ||
         (clean.includes('Tips for getting started') && clean.includes('Claude')) ||
         (clean.includes('Opus') && clean.includes('Claude API')) ||
@@ -616,9 +651,9 @@ async function fetchUsageViaCLI(): Promise<UsageSnapshot> {
             ptyProcess.write('/usage\r');
             setTimeout(() => {
               if (!settled && ptyProcess) ptyProcess.write('\r');
-            }, 1200);
+            }, 800);
           }
-        }, 1500);
+        }, 800);
       }
     });
 
@@ -645,24 +680,64 @@ async function fetchUsageViaCLI(): Promise<UsageSnapshot> {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
+// Track last successful result so we can return it on rate limits / errors
+let lastSuccessfulUsage: UsageSnapshot | null = null;
+
+// When non-zero, the API is rate-limited until this timestamp
+let rateLimitedUntil = 0;
+
+/** Exposes the rate-limit backoff timestamp so the handler can adjust polling */
+export function getRateLimitedUntil(): number { return rateLimitedUntil; }
+
 /**
- * Fetch usage data - tries OAuth API first, falls back to CLI
+ * Fetch usage data — OAuth API only, with CLI fallback when no token exists.
+ * On 429 the rate-limit backoff is recorded and cached data is returned.
  */
 export async function fetchUsageData(): Promise<UsageSnapshot> {
+  // If we're still in a rate-limit backoff window, return cached data immediately
+  const now = Date.now();
+  if (rateLimitedUntil > now && lastSuccessfulUsage) {
+    debugLog(`[UsageService] Still rate-limited for ${Math.round((rateLimitedUntil - now) / 1000)}s — returning cached data`);
+    return { ...lastSuccessfulUsage, fetchedAt: new Date() };
+  }
+
   // Method 1: OAuth API (fast, reliable)
   try {
     const apiResult = await fetchUsageViaAPI();
     if (apiResult) {
       debugLog('[UsageService] Got usage via OAuth API');
+      lastSuccessfulUsage = apiResult;
+      rateLimitedUntil = 0; // Clear any previous backoff
       return apiResult;
     }
   } catch (err) {
-    debugLog('[UsageService] OAuth API failed, trying CLI fallback:', err instanceof Error ? err.message : String(err));
+    if (err instanceof RateLimitError) {
+      rateLimitedUntil = Date.now() + err.retryAfterMs;
+      if (lastSuccessfulUsage) {
+        debugLog(`[UsageService] Rate limited — returning cached data, retry in ${err.retryAfterMs / 1000}s`);
+        return { ...lastSuccessfulUsage, fetchedAt: new Date() };
+      }
+      throw new Error('Rate limited and no cached data available');
+    }
+    debugLog('[UsageService] OAuth API failed:', err instanceof Error ? err.message : String(err));
   }
 
-  // Method 2: CLI /usage command (fallback)
-  debugLog('[UsageService] Falling back to CLI /usage method');
-  return fetchUsageViaCLI();
+  // Method 2: CLI /usage — only used when there is no OAuth token at all
+  // (if the API returned 429/error it means we have a token, CLI would hit the same limit)
+  const { token } = getOAuthCredentials();
+  if (token) {
+    // We have a token but the API failed for a non-429 reason — return cached or throw
+    if (lastSuccessfulUsage) {
+      debugLog('[UsageService] API failed but have cached data — returning it');
+      return { ...lastSuccessfulUsage, fetchedAt: new Date() };
+    }
+    throw new Error('OAuth API failed and no cached data available');
+  }
+
+  debugLog('[UsageService] No OAuth token — falling back to CLI /usage method');
+  const cliResult = await fetchUsageViaCLI();
+  lastSuccessfulUsage = cliResult;
+  return cliResult;
 }
 
 

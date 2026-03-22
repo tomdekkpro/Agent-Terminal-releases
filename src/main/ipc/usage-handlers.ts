@@ -7,7 +7,7 @@
 
 import type { IpcMain, BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../shared/constants';
-import { fetchUsageData, isClaudeAvailable } from '../usage/usage-service';
+import { fetchUsageData, isClaudeAvailable, getRateLimitedUntil } from '../usage/usage-service';
 import { getCopilotSessionData } from '../usage/copilot-usage-service';
 import type { UsageSnapshot } from '../../shared/types';
 import { debugError } from '../../shared/utils';
@@ -86,6 +86,9 @@ function startPolling(getWindow: () => BrowserWindow | null): void {
     // Skip if previous poll is still running (prevents queue buildup)
     if (isPollingInProgress) return;
 
+    // Skip if we're in a rate-limit backoff window
+    if (getRateLimitedUntil() > Date.now()) return;
+
     // Skip if window is not focused (no need to poll in background)
     const win = getWindow();
     if (!win || win.isDestroyed() || win.isMinimized()) return;
@@ -109,7 +112,7 @@ function startPolling(getWindow: () => BrowserWindow | null): void {
     } finally {
       isPollingInProgress = false;
     }
-  }, 60_000); // 1 minute
+  }, 180_000); // 3 minutes
 }
 
 export function stopUsagePolling(): void {
