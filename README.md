@@ -168,7 +168,7 @@ Customize font family, font size, cursor style, scrollback buffer, and theme in 
 - **Zustand 5** — State management
 - **xterm.js 6** — Terminal emulation
 - **Tailwind CSS 4** — Styling
-- **Vite 7** + **electron-vite 5** — Build tooling
+- **Vite 7.3** + **electron-vite 5** — Build tooling
 - **electron-builder 26** — Packaging & distribution
 - **electron-updater 6** — Auto-updates
 
