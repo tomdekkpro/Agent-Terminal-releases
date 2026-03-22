@@ -26,15 +26,19 @@
 - **Multi-project terminals** — Organize terminals by project with tabbed navigation and split panes
 - **Multi-agent support** — Plug-in architecture for AI agents: Claude, GitHub Copilot, Gemini, Aider, and Qwen — each with model selection and usage tracking
 - **Insights (AI Chat)** — Chat with any supported agent from a dedicated view with session history and model selection
+- **Code Review** — Automated PR code review with severity ratings, findings grouped by file, and configurable review intervals
+- **QC Testing** — Quality check view for running and tracking test results
 - **Task management** — Unified provider system supporting **ClickUp** and **Jira** — pick tasks, create branches, track status, and post comments
 - **Time tracking** — Start/stop timer per terminal, automatically synced to your task manager
+- **Team collaboration** — Shared workspace features for team-based workflows
 - **Copilot usage tracking** — Monitor GitHub Copilot session turns, model info, and context window data
 - **Git worktree support** — Isolate task work in dedicated worktrees, auto-cleanup on completion
 - **Task completion flow** — Create PR, push to remote, or merge locally when done
 - **Mobile remote control** — Control your terminal from your phone via QR code pairing
 - **Usage tracking** — Monitor API usage across all providers with a built-in usage indicator
+- **Service status** — Monitor the availability of configured services at a glance
 - **Auto-update** — Get notified and update to the latest version from GitHub Releases
-- **Terminal persistence** — Sessions restore automatically on restart
+- **Terminal persistence** — All terminals (agent and plain shell) restore automatically on restart
 
 ## Download
 
@@ -53,8 +57,10 @@ Get the latest release for your platform:
 | Action | Shortcut |
 |--------|----------|
 | Terminals view | `Ctrl+T` |
-| Tasks view | `Ctrl+K` |
-| Insights view | `Ctrl+I` |
+| Sessions view | `Ctrl+K` |
+| QC Testing view | `Ctrl+Q` |
+| Insights (Chat) view | `Ctrl+I` |
+| Code Review view | `Ctrl+R` |
 | Settings view | `Ctrl+S` |
 | New terminal | `Ctrl+N` |
 | Switch project 1–9 | `Ctrl+1` – `Ctrl+9` |
@@ -119,6 +125,13 @@ The GitHub Actions workflow builds for all platforms and publishes to [Releases]
 3. Choose a model from the provider's available models
 4. Start a conversation — sessions are saved and can be resumed from the sidebar
 
+### Code Review
+
+1. Open **Code Review** (`Ctrl+R`)
+2. Reviews run automatically on a configurable interval or on-demand
+3. PRs are analyzed for critical issues, bugs, suggestions, and code quality
+4. Findings are grouped by file with severity ratings and inline code references
+
 ### AI Agents
 
 Agent Terminal supports multiple AI agent providers through a plug-in system. Each agent can be invoked directly in a terminal session:
@@ -158,7 +171,11 @@ src/
 │   │   ├── task-manager-handlers.ts   # Unified task manager (ClickUp / Jira)
 │   │   ├── git-handlers.ts
 │   │   ├── insights-handlers.ts
+│   │   ├── code-review-handlers.ts
+│   │   ├── qc-handlers.ts
+│   │   ├── team-handlers.ts
 │   │   ├── usage-handlers.ts
+│   │   ├── service-status-handlers.ts
 │   │   ├── project-handlers.ts
 │   │   ├── settings-handlers.ts
 │   │   └── providers/                 # Plug-in providers
@@ -174,7 +191,10 @@ src/
 │   │           └── qwen-agent.ts
 │   ├── terminal/        # PTY management & persistence
 │   ├── insights/        # AI chat executor & session storage
+│   ├── qc/              # QC testing logic
+│   ├── team/            # Team collaboration
 │   ├── usage/           # API & Copilot usage tracking services
+│   ├── analytics/       # Analytics & telemetry
 │   └── project/         # Project data store
 ├── renderer/            # React frontend
 │   ├── App.tsx          # Root component & shortcuts
@@ -183,7 +203,12 @@ src/
 │   │   ├── layout/      # Sidebar, ProjectTabBar
 │   │   ├── tasks/       # TasksView (multi-provider)
 │   │   ├── insights/    # InsightsView, ChatMessage, ModelSelector, SessionSidebar
+│   │   ├── code-review/ # CodeReviewView — automated PR review
+│   │   ├── qc/          # QCView — quality check testing
+│   │   ├── team/        # Team collaboration UI
+│   │   ├── status/      # Service status indicators
 │   │   ├── usage/       # UsageIndicator
+│   │   ├── project/     # Project settings & management
 │   │   ├── settings/    # SettingsView
 │   │   └── updates/     # UpdateNotification
 │   ├── stores/          # Zustand stores
