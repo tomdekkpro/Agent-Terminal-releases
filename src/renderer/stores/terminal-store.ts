@@ -59,20 +59,10 @@ export function unregisterOutputCallback(terminalId: string): void {
   xtermCallbacks.delete(terminalId);
 }
 
-// Build saveable state snapshot — persist terminals that have an active agent
-// session AND any split-mates in the same group so the layout is preserved.
-// Plain shell terminals in non-agent groups are still excluded.
+// Build saveable state snapshot — persist all terminals so the full layout
+// (including plain shell tabs) is restored when the app reopens.
 function buildSaveableState(state: TerminalState) {
-  // Collect groupIds that contain at least one agent terminal
-  const agentGroupIds = new Set<string>();
-  for (const t of state.terminals) {
-    if (t.claudeSessionId || t.isClaudeMode) {
-      agentGroupIds.add(t.groupId);
-    }
-  }
-
   const saveable = state.terminals
-    .filter((t) => agentGroupIds.has(t.groupId))
     .map((t) => ({
       id: t.id,
       groupId: t.groupId,
@@ -115,10 +105,8 @@ export function flushTerminalStateSync(): void {
   }
   const state = useTerminalStore.getState();
   if (!state.isRestored) return;
-  // Only save terminals that were using an agent provider (have a session or
-  // are in agent mode).  Plain shell terminals start fresh on next launch.
+  // Save all terminals so plain shells are also restored on next launch.
   const saveable = state.terminals
-    .filter((t) => !!t.claudeSessionId || t.isClaudeMode)
     .map((t) => ({
       id: t.id,
       groupId: t.groupId,
@@ -513,30 +501,34 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         }
       } catch { /* non-critical — terminals restore without history */ }
 
-      // Restore all saved terminals (agent terminals + their split-mates).
-      // All get needsRestore so the RestoreBanner handles activation.
+      // Restore all saved terminals. Agent terminals with a session get
+      // needsRestore so the RestoreBanner handles activation. Plain shell
+      // terminals get needsRestore=false so their PTY is created automatically.
       const restored: Terminal[] = saved.terminals
-        .map((t: any) => ({
-          id: t.id,
-          groupId: t.groupId,
-          title: t.title,
-          status: 'idle' as TerminalStatus,
-          cwd: t.cwd || '',
-          createdAt: new Date(),
-          isClaudeMode: false,
-          // Migrate legacy copilotProvider → agentProvider
-          agentProvider: t.agentProvider || t.copilotProvider || 'claude',
-          claudeSessionId: t.claudeSessionId,
-          claudeCwd: t.claudeCwd,
-          skipPermissions: t.skipPermissions || false,
-          projectId: t.projectId,
-          // Support both legacy clickUpTask and new task field
-          task: t.task || (t.clickUpTask ? { ...t.clickUpTask, provider: 'clickup' as const } : undefined),
-          worktreePath: t.worktreePath,
-          worktreeBranch: t.worktreeBranch,
-          timeTracking: t.timeTracking,
-          needsRestore: true,
-        }));
+        .map((t: any) => {
+          const isAgent = !!(t.claudeSessionId || t.isClaudeMode);
+          return {
+            id: t.id,
+            groupId: t.groupId,
+            title: t.title,
+            status: 'idle' as TerminalStatus,
+            cwd: t.cwd || '',
+            createdAt: new Date(),
+            isClaudeMode: false,
+            // Migrate legacy copilotProvider → agentProvider
+            agentProvider: t.agentProvider || t.copilotProvider || 'claude',
+            claudeSessionId: t.claudeSessionId,
+            claudeCwd: t.claudeCwd,
+            skipPermissions: t.skipPermissions || false,
+            projectId: t.projectId,
+            // Support both legacy clickUpTask and new task field
+            task: t.task || (t.clickUpTask ? { ...t.clickUpTask, provider: 'clickup' as const } : undefined),
+            worktreePath: t.worktreePath,
+            worktreeBranch: t.worktreeBranch,
+            timeTracking: t.timeTracking,
+            needsRestore: isAgent,
+          };
+        });
 
       set({
         terminals: restored,
@@ -544,6 +536,18 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
         activeGroupId: saved.activeGroupId,
         isRestored: true,
       });
+
+      // Auto-create PTYs for plain shell terminals so they open like new terminals
+      for (const t of restored) {
+        if (!t.needsRestore) {
+          window.electronAPI.createTerminal({
+            id: t.id,
+            cwd: t.cwd || '',
+            cols: 80,
+            rows: 24,
+          }).catch(() => { /* non-critical */ });
+        }
+      }
 
       return restored;
     } catch {
